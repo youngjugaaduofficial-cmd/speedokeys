@@ -984,3 +984,27 @@ if (require.main === module) {
   });
 }
 module.exports = { server, start, _db: () => db };
+app.post('/api/webhook', async (req, res) => {
+  try {
+    const data = req.body;
+    const status = String(data.status || '').toLowerCase();
+    
+    const pay = payments.find(p => p.id === data.order_id);
+    if (!pay) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if (status === 'success' || status === 'completed' || status === 'paid') {
+      if (pay.status !== 'paid') {
+        settlePayment(pay, 'Wallet top-up');
+      }
+    } else {
+      pay.status = 'failed';
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('Webhook error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
