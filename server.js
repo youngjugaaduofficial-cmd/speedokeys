@@ -165,19 +165,15 @@ function addTxn(user, type, amountPaise, note) {
 
 function csvCell(v) {
   let s = String(v == null ? '' : v);
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stop spreadsheet formula injection
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
 // ======================================================================
 // Payment gateway adapters
 // ======================================================================
-// A gateway needs two functions:
-//   create(payment, ctx) -> { ref, payUrl }          start a payment
-//   check(payment)       -> { status, amountPaise }  status: 'paid' | 'pending' | 'failed'
 const GATEWAY = process.env.GATEWAY || 'mock';
 const gateways = {
-  // Test mode: nothing is charged. The app shows a "simulate payment" button.
   mock: {
     async create(payment) {
       return { ref: 'mock_' + payment.id, payUrl: null };
@@ -186,16 +182,42 @@ const gateways = {
       return { status: 'pending' };
     },
   },
-  // ZapUPI goes here once its API details are confirmed.
   zapupi: {
-    async create() {
-      throw new Error('ZapUPI is not connected yet');
+    async create(payment, ctx) {
+      const res = await fetch('https://api.zapupi.com/v1/create_order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.ZAPUPI_API_KEY}`
+        },
+        body: JSON.stringify({
+          amount: payment.amountPaise / 100,
+          order_id: payment.id,
+          redirect_url: ctx.returnUrl
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'ZapUPI connection failed');
+      }
+      return { ref: data.order_ref || payment.id, payUrl: data.payment_url };
     },
-    async check() {
-      throw new Error('ZapUPI is not connected yet');
+    async check(payment) {
+      const res = await fetch(`https://api.zapupi.com/v1/status/${payment.ref}`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.ZAPUPI_API_KEY}`
+        }
+      });
+      const data = await res.json();
+      let status = 'pending';
+      if (data.status === 'SUCCESS' || data.status === 'paid') status = 'paid';
+      else if (data.status === 'FAILED' || data.status === 'failed') status = 'failed';
+      
+      return { status, amountPaise: data.amount ? Math.round(data.amount * 100) : payment.amountPaise };
     },
   },
 };
+
 if (!gateways[GATEWAY]) {
   console.error('Unknown GATEWAY: ' + GATEWAY);
   process.exit(1);
@@ -203,7 +225,6 @@ if (!gateways[GATEWAY]) {
 const MOCK_MODE = GATEWAY === 'mock';
 const gateway = gateways[GATEWAY];
 
-// Credits the wallet once. Safe to call many times for the same payment.
 function settlePayment(pay, note) {
   if (pay.status === 'paid') return pay;
   const user = db.users.find((u) => u.id === pay.userId);
@@ -348,7 +369,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ======================================================================
-// Public routes
+// Routes
 // ======================================================================
 route('GET', '/api/health', () => ({ ok: true, gateway: GATEWAY }));
 
@@ -375,7 +396,6 @@ route('GET', '/api/products', () =>
     }))
 );
 
-// ----- accounts -----
 const USERNAME_RX = /^[A-Za-z0-9_]{3,20}$/;
 
 route('POST', '/api/signup', async ({ body, ip }) => {
@@ -428,12 +448,11 @@ route('POST', '/api/me/password', { auth: 'user' }, async ({ user, body }) => {
   if (!(await checkPassword(String(body.current || ''), user.passHash))) fail(400, 'Current password is wrong');
   if (next.length < 6 || next.length > 100) fail(400, 'New password must be at least 6 characters');
   user.passHash = await hashPassword(next);
-  user.tv += 1; // logs out every other device
+  user.tv += 1;
   save();
   return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400) };
 });
 
-// ----- shopping -----
 function couponDiscount(code, pricePaise) {
   if (!code) return { discountPaise: 0, coupon: null };
   const c = db.coupons.find((x) => x.code.toLowerCase() === String(code).trim().toLowerCase());
@@ -464,7 +483,6 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
   const key = db.keys.find((k) => k.productId === product.id && k.status === 'available');
   if (!key) fail(409, 'Out of stock');
 
-  // From here on nothing awaits, so no other request can sneak in between these steps.
   const order = {
     id: uid(),
     userId: user.id,
@@ -504,7 +522,6 @@ route('GET', '/api/orders', { auth: 'user' }, ({ user }) =>
     })
 );
 
-// ----- wallet -----
 route('GET', '/api/wallet', { auth: 'user' }, ({ user }) => ({
   balance: rupees(user.balancePaise),
   transactions: db.txns
@@ -514,7 +531,7 @@ route('GET', '/api/wallet', { auth: 'user' }, ({ user }) => ({
     .map((t) => ({ id: t.id, type: t.type, amount: rupees(t.amountPaise), note: t.note, createdAt: t.createdAt })),
 }));
 
-route('POST', '/api/topup', { auth: 'user', }, async ({ user, body, req }) => {
+route('POST', '/api/topup', { auth: 'user' }, async ({ user, body, req }) => {
   limit('topup:' + user.id, 10, 3600 * 1000);
   const amountPaise = Math.round(Number(body.amount) * 100);
   if (!Number.isFinite(amountPaise) || amountPaise < db.settings.minTopupPaise || amountPaise > db.settings.maxTopupPaise) {
@@ -546,7 +563,6 @@ route('POST', '/api/topup', { auth: 'user', }, async ({ user, body, req }) => {
   return { paymentId: pay.id, payUrl: pay.payUrl, amount: rupees(amountPaise), testMode: MOCK_MODE };
 });
 
-// The page calls this after the customer comes back from the payment app.
 route('GET', '/api/payments/:id', { auth: 'user' }, async ({ user, params }) => {
   const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
   if (!pay) fail(404, 'Payment not found');
@@ -565,7 +581,6 @@ route('GET', '/api/payments/:id', { auth: 'user' }, async ({ user, params }) => 
   return { id: pay.id, status: pay.status, amount: rupees(pay.amountPaise), balance: rupees(user.balancePaise) };
 });
 
-// Test mode only: pretend the customer paid.
 route('POST', '/api/payments/:id/simulate', { auth: 'user' }, ({ user, params }) => {
   if (!MOCK_MODE) fail(404, 'Not found');
   const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
@@ -739,7 +754,6 @@ route('DELETE', '/api/admin/keys/:id', A, ({ params }) => {
   return { ok: true };
 });
 
-// ----- users -----
 route('GET', '/api/admin/users', A, ({ query }) => {
   const q = (query.get('q') || '').toLowerCase();
   return db.users
@@ -811,7 +825,6 @@ route('POST', '/api/admin/users/:id/password', A, async ({ params, body }) => {
   return { ok: true };
 });
 
-// ----- orders and payments -----
 function adminOrderRows(query) {
   const q = (query.get('q') || '').toLowerCase();
   const status = query.get('status') || '';
@@ -874,7 +887,6 @@ route('POST', '/api/admin/payments/:id/approve', A, ({ params }) => {
   return { status: p.status };
 });
 
-// ----- coupons -----
 route('GET', '/api/admin/coupons', A, () =>
   db.coupons.map((c) => ({
     id: c.id, code: c.code, type: c.type, value: c.value, maxUses: c.maxUses, used: c.used,
@@ -920,7 +932,6 @@ route('DELETE', '/api/admin/coupons/:id', A, ({ params }) => {
   return { ok: true };
 });
 
-// ----- settings -----
 route('GET', '/api/admin/settings', A, () => ({
   siteName: db.settings.siteName,
   announcement: db.settings.announcement,
@@ -948,9 +959,6 @@ route('PUT', '/api/admin/settings', A, ({ body }) => {
   return { ok: true };
 });
 
-// ======================================================================
-// Start
-// ======================================================================
 async function start() {
   await loadDb();
   server.listen(PORT, () => {
