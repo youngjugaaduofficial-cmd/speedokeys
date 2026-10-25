@@ -184,36 +184,43 @@ const gateways = {
   },
   zapupi: {
     async create(payment, ctx) {
-      const res = await fetch('https://api.zapupi.com/v1/create_order', {
+      const res = await fetch('https://pay.zapupi.com/api/create-order', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.ZAPUPI_API_KEY}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          amount: payment.amountPaise / 100,
+          zap_key: process.env.ZAPUPI_API_KEY,
           order_id: payment.id,
-          redirect_url: ctx.returnUrl
+          amount: payment.amountPaise / 100,
+          success_url: ctx.returnUrl,
+          failed_url: ctx.returnUrl
         })
       });
       const data = await res.json();
-      if (!res.ok || !data.success) {
+      if (!res.ok || data.status === 'error' || !data.payment_url) {
         throw new Error(data.message || 'ZapUPI connection failed');
       }
-      return { ref: data.order_ref || payment.id, payUrl: data.payment_url };
+      return { ref: payment.id, payUrl: data.payment_url };
     },
     async check(payment) {
-      const res = await fetch(`https://api.zapupi.com/v1/status/${payment.ref}`, {
+      const res = await fetch('https://pay.zapupi.com/api/order-status', {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.ZAPUPI_API_KEY}`
-        }
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          zap_key: process.env.ZAPUPI_API_KEY,
+          order_id: payment.id
+        })
       });
       const data = await res.json();
       let status = 'pending';
-      if (data.status === 'SUCCESS' || data.status === 'paid') status = 'paid';
-      else if (data.status === 'FAILED' || data.status === 'failed') status = 'failed';
+      const st = String(data.status || '').toLowerCase();
+      if (st === 'success' || st === 'completed') status = 'paid';
+      else if (st === 'failed' || st === 'error') status = 'failed';
       
-      return { status, amountPaise: data.amount ? Math.round(data.amount * 100) : payment.amountPaise };
+      return { status, amountPaise: data.amount ? Math.round(Number(data.amount) * 100) : payment.amountPaise };
     },
   },
 };
