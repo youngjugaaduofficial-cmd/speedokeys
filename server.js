@@ -1,5 +1,6 @@
 'use strict';
-// Key store backend. Zero dependencies: needs only Node.js 20.6 or newer.
+// Key Store v2: accounts, wallet, key sales, admin panel.
+// Zero dependencies. Needs Node.js 20.6 or newer.
 
 const http = require('http');
 const crypto = require('crypto');
@@ -9,35 +10,93 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const JWT_SECRET = process.env.JWT_SECRET;
-const RZP_KEY_ID = process.env.RAZORPAY_KEY_ID || '';
-const RZP_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '';
-const RZP_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || '';
-const TRUST_PROXY = process.env.TRUST_PROXY === '1'; // set to 1 when behind nginx/Render/etc.
-const MOCK_MODE = !RZP_KEY_ID;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
-const RESERVE_MINUTES = 20;
+const TRUST_PROXY = process.env.TRUST_PROXY ? process.env.TRUST_PROXY === '1' : !!process.env.RENDER;
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+
+// Durable storage (recommended on free hosting): Upstash Redis over plain HTTPS
+const REMOTE_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
+const REMOTE_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const REMOTE_KEY = 'keystore_db_v2';
 
 if (!ADMIN_PASSWORD || !JWT_SECRET) {
   console.error('ADMIN_PASSWORD and JWT_SECRET must be set (see .env.example).');
   process.exit(1);
 }
-if (!MOCK_MODE && !RZP_KEY_SECRET) {
-  console.error('RAZORPAY_KEY_SECRET must be set when RAZORPAY_KEY_ID is set.');
+if (REMOTE_URL && !REMOTE_TOKEN) {
+  console.error('UPSTASH_REDIS_REST_TOKEN must be set together with UPSTASH_REDIS_REST_URL.');
   process.exit(1);
 }
 
-// ---------- tiny JSON file store ----------
-let db = { products: [], keys: [], orders: [] };
-if (fs.existsSync(DATA_FILE)) db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-function save() {
-  const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, DATA_FILE);
+// ======================================================================
+// Storage
+// ======================================================================
+const emptyDb = () => ({
+  settings: {
+    siteName: 'Key Store',
+    announcement: '',
+    supportLink: '',
+    supportText: 'Contact support',
+    minTopupPaise: 1000,
+    maxTopupPaise: 1000000,
+  },
+  users: [],
+  products: [],
+  keys: [],
+  orders: [],
+  payments: [],
+  txns: [],
+  coupons: [],
+});
+let db = emptyDb();
+
+async function remote(cmd) {
+  const r = await fetch(REMOTE_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${REMOTE_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(cmd),
+  });
+  if (!r.ok) throw new Error('storage HTTP ' + r.status);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j.result;
 }
+
+async function loadDb() {
+  let raw = null;
+  if (REMOTE_URL) raw = await remote(['GET', REMOTE_KEY]);
+  else if (fs.existsSync(DATA_FILE)) raw = fs.readFileSync(DATA_FILE, 'utf8');
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    db = Object.assign(emptyDb(), parsed, { settings: Object.assign(emptyDb().settings, parsed.settings || {}) });
+  }
+}
+
+let writeChain = Promise.resolve();
+let pendingSave = Promise.resolve();
+function save() {
+  const json = JSON.stringify(db);
+  if (!REMOTE_URL) {
+    const tmp = DATA_FILE + '.tmp';
+    fs.writeFileSync(tmp, json);
+    fs.renameSync(tmp, DATA_FILE);
+    return;
+  }
+  if (json.length > 900000) console.warn('Database is getting large for the free Upstash limit (1 MB).');
+  writeChain = writeChain
+    .then(() => remote(['SET', REMOTE_KEY, json]))
+    .catch((e) => console.error('SAVE FAILED:', e.message));
+  pendingSave = writeChain;
+}
+
+// ======================================================================
+// Helpers
+// ======================================================================
 const uid = () => crypto.randomUUID();
 const now = () => Date.now();
+const istDay = (ts) => new Date(ts + 19800000).toISOString().slice(0, 10);
+const rupees = (paise) => paise / 100;
 
-// ---------- helpers ----------
 function safeEqual(a, b) {
   const x = Buffer.from(String(a));
   const y = Buffer.from(String(b));
@@ -45,94 +104,128 @@ function safeEqual(a, b) {
 }
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 
-function signToken(ttlSeconds) {
+function signToken(payload, ttlSeconds) {
   const head = b64u(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = b64u(JSON.stringify({ role: 'admin', exp: Math.floor(now() / 1000) + ttlSeconds }));
+  const body = b64u(JSON.stringify({ ...payload, exp: Math.floor(now() / 1000) + ttlSeconds }));
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(`${head}.${body}`).digest('base64url');
   return `${head}.${body}.${sig}`;
 }
-function verifyToken(token) {
+function readToken(token) {
   const parts = String(token).split('.');
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return null;
   const expected = crypto.createHmac('sha256', JWT_SECRET).update(`${parts[0]}.${parts[1]}`).digest('base64url');
-  if (!safeEqual(parts[2], expected)) return false;
+  if (!safeEqual(parts[2], expected)) return null;
   try {
     const p = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    return p.role === 'admin' && p.exp > Math.floor(now() / 1000);
+    return p.exp > Math.floor(now() / 1000) ? p : null;
   } catch (_) {
-    return false;
+    return null;
   }
 }
 
-function releaseExpired() {
-  const cutoff = now() - RESERVE_MINUTES * 60 * 1000;
-  let changed = false;
-  for (const o of db.orders) {
-    if (o.status === 'created' && o.createdAt < cutoff) {
-      o.status = 'expired';
-      const k = db.keys.find((x) => x.id === o.keyId);
-      if (k && k.status === 'reserved') {
-        k.status = 'available';
-        k.orderId = null;
-      }
-      changed = true;
-    }
-  }
-  if (changed) save();
-}
-
-const stock = (productId) => db.keys.filter((k) => k.productId === productId && k.status === 'available').length;
-
-// Marks an order paid and hands over its key. Idempotent.
-function finalizeOrder(order, paymentId) {
-  if (order.status === 'paid') return order;
-  let key = db.keys.find((k) => k.id === order.keyId);
-  if (!key || (key.status !== 'reserved' && key.status !== 'sold') || (key.orderId && key.orderId !== order.id)) {
-    // reservation was released (expired); try to grab another key
-    key = db.keys.find((k) => k.productId === order.productId && k.status === 'available');
-  }
-  order.paymentId = paymentId;
-  order.paidAt = now();
-  if (!key) {
-    order.status = 'paid_no_stock'; // customer paid but no key: admin must refund or add stock
-    save();
-    return order;
-  }
-  key.status = 'sold';
-  key.orderId = order.id;
-  order.keyId = key.id;
-  order.status = 'paid';
-  save();
-  return order;
-}
-
-async function createRazorpayOrder(amountPaise, receipt) {
-  const auth = Buffer.from(`${RZP_KEY_ID}:${RZP_KEY_SECRET}`).toString('base64');
-  const res = await fetch('https://api.razorpay.com/v1/orders', {
-    method: 'POST',
-    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt }),
+function hashPassword(password) {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16);
+    crypto.scrypt(password, salt, 64, (err, key) => (err ? reject(err) : resolve(`${salt.toString('hex')}:${key.toString('hex')}`)));
   });
-  if (!res.ok) throw new Error(`Razorpay error ${res.status}`);
-  return res.json();
+}
+function checkPassword(password, stored) {
+  return new Promise((resolve) => {
+    const [saltHex, keyHex] = String(stored).split(':');
+    if (!saltHex || !keyHex) return resolve(false);
+    crypto.scrypt(password, Buffer.from(saltHex, 'hex'), 64, (err, key) => {
+      resolve(!err && safeEqual(key.toString('hex'), keyHex));
+    });
+  });
 }
 
-function publicOrder(order) {
-  const out = { orderId: order.id, status: order.status };
-  if (order.status === 'paid') {
-    const k = db.keys.find((x) => x.id === order.keyId);
-    out.key = k ? k.value : null;
+const limits = new Map();
+function limit(key, max, windowMs) {
+  const t = now();
+  const rec = limits.get(key);
+  if (!rec || t - rec.since > windowMs) {
+    limits.set(key, { count: 1, since: t });
+    return;
   }
-  return out;
+  rec.count += 1;
+  if (rec.count > max) fail(429, 'Too many attempts. Please try again later.');
+}
+setInterval(() => {
+  const t = now();
+  for (const [k, v] of limits) if (t - v.since > 3600 * 1000) limits.delete(k);
+}, 600 * 1000).unref();
+
+const publicUser = (u) => ({ id: u.id, username: u.username, balance: rupees(u.balancePaise), createdAt: u.createdAt });
+const stockOf = (productId) => db.keys.filter((k) => k.productId === productId && k.status === 'available').length;
+
+function addTxn(user, type, amountPaise, note) {
+  user.balancePaise += amountPaise;
+  db.txns.push({ id: uid(), userId: user.id, type, amountPaise, balanceAfter: user.balancePaise, note: note || '', createdAt: now() });
 }
 
-// ---------- mini router ----------
+function csvCell(v) {
+  let s = String(v == null ? '' : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stop spreadsheet formula injection
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+// ======================================================================
+// Payment gateway adapters
+// ======================================================================
+// A gateway needs two functions:
+//   create(payment, ctx) -> { ref, payUrl }          start a payment
+//   check(payment)       -> { status, amountPaise }  status: 'paid' | 'pending' | 'failed'
+const GATEWAY = process.env.GATEWAY || 'mock';
+const gateways = {
+  // Test mode: nothing is charged. The app shows a "simulate payment" button.
+  mock: {
+    async create(payment) {
+      return { ref: 'mock_' + payment.id, payUrl: null };
+    },
+    async check() {
+      return { status: 'pending' };
+    },
+  },
+  // ZapUPI goes here once its API details are confirmed.
+  zapupi: {
+    async create() {
+      throw new Error('ZapUPI is not connected yet');
+    },
+    async check() {
+      throw new Error('ZapUPI is not connected yet');
+    },
+  },
+};
+if (!gateways[GATEWAY]) {
+  console.error('Unknown GATEWAY: ' + GATEWAY);
+  process.exit(1);
+}
+const MOCK_MODE = GATEWAY === 'mock';
+const gateway = gateways[GATEWAY];
+
+// Credits the wallet once. Safe to call many times for the same payment.
+function settlePayment(pay, note) {
+  if (pay.status === 'paid') return pay;
+  const user = db.users.find((u) => u.id === pay.userId);
+  pay.status = 'paid';
+  pay.paidAt = now();
+  if (user) addTxn(user, 'topup', pay.amountPaise, note || 'Wallet top-up');
+  save();
+  return pay;
+}
+
+// ======================================================================
+// Mini router
+// ======================================================================
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
   }
 }
+const fail = (status, message) => {
+  throw new HttpError(status, message);
+};
 const routes = [];
 function route(method, pattern, opts, handler) {
   if (typeof opts === 'function') {
@@ -140,25 +233,23 @@ function route(method, pattern, opts, handler) {
     opts = {};
   }
   const names = [];
-  const rx = new RegExp(
-    '^' + pattern.replace(/:([a-zA-Z]+)/g, (_, n) => (names.push(n), '([^/]+)')) + '/?$'
-  );
+  const rx = new RegExp('^' + pattern.replace(/:([a-zA-Z]+)/g, (_, n) => (names.push(n), '([^/]+)')) + '/?$');
   routes.push({ method, rx, names, opts, handler });
 }
-
-function send(res, status, obj) {
+const sendJson = (res, status, obj) => {
   const body = JSON.stringify(obj);
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store' });
   res.end(body);
-}
+};
+const reply = (status, body) => ({ __status: status, body });
 
-function readBody(req, limit) {
+function readBody(req, max) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size > limit) {
+      if (size > max) {
         reject(new HttpError(413, 'Body too large'));
         req.destroy();
       } else chunks.push(c);
@@ -168,44 +259,70 @@ function readBody(req, limit) {
   });
 }
 
+const PAGES = { '/': 'index.html', '/index.html': 'index.html', '/admin': 'admin.html', '/admin/': 'admin.html' };
+function servePage(res, file) {
+  const html = fs.readFileSync(path.join(__dirname, file));
+  const headers = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'DENY',
+  };
+  if (file === 'admin.html') headers['X-Robots-Tag'] = 'noindex, nofollow';
+  res.writeHead(200, headers);
+  res.end(html);
+}
+
+function authUser(req) {
+  const h = req.headers['authorization'] || '';
+  const p = h.startsWith('Bearer ') ? readToken(h.slice(7)) : null;
+  if (!p || p.role !== 'user') fail(401, 'Please log in');
+  const user = db.users.find((u) => u.id === p.uid);
+  if (!user) fail(401, 'Please log in again');
+  if (user.banned) fail(403, 'This account has been blocked');
+  if (user.tv !== p.tv) fail(401, 'Please log in again');
+  return user;
+}
+function authAdmin(req) {
+  const h = req.headers['authorization'] || '';
+  const p = h.startsWith('Bearer ') ? readToken(h.slice(7)) : null;
+  if (!p || p.role !== 'admin') fail(401, 'Unauthorized');
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
 
-    // The web app (store + admin panel) is one page served at the root address
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-      // index.html can sit next to server.js or inside a public/ folder
-      const inPublic = path.join(__dirname, 'public', 'index.html');
-      const html = fs.readFileSync(fs.existsSync(inPublic) ? inPublic : path.join(__dirname, 'index.html'));
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Content-Type-Options': 'nosniff',
-        'Referrer-Policy': 'no-referrer',
-      });
-      return res.end(html);
+    if (req.method === 'GET' && PAGES[url.pathname]) return servePage(res, PAGES[url.pathname]);
+    if (req.method === 'GET' && url.pathname === '/favicon.ico') {
+      res.writeHead(204);
+      return res.end();
     }
 
     let matched = null;
-    let params = {};
-    let pathMatchedOtherMethod = false;
+    const params = {};
+    let otherMethod = false;
     for (const r of routes) {
       const m = r.rx.exec(url.pathname);
       if (!m) continue;
       if (r.method !== req.method) {
-        pathMatchedOtherMethod = true;
+        otherMethod = true;
         continue;
       }
       matched = r;
       r.names.forEach((n, i) => (params[n] = decodeURIComponent(m[i + 1])));
       break;
     }
-    if (!matched) return send(res, pathMatchedOtherMethod ? 405 : 404, { error: 'Not found' });
+    if (!matched) return sendJson(res, otherMethod ? 405 : 404, { error: 'Not found' });
 
-    if (matched.opts.admin) {
-      const h = req.headers['authorization'] || '';
-      if (!h.startsWith('Bearer ') || !verifyToken(h.slice(7))) return send(res, 401, { error: 'Unauthorized' });
-    }
+    const ip = TRUST_PROXY
+      ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress
+      : req.socket.remoteAddress;
+
+    let user = null;
+    if (matched.opts.auth === 'user') user = authUser(req);
+    if (matched.opts.auth === 'admin') authAdmin(req);
 
     const raw = req.method === 'GET' || req.method === 'DELETE' ? Buffer.alloc(0) : await readBody(req, 200 * 1024);
     let body = {};
@@ -213,198 +330,362 @@ const server = http.createServer(async (req, res) => {
       try {
         body = JSON.parse(raw.toString('utf8'));
       } catch (_) {
-        return send(res, 400, { error: 'Invalid JSON' });
+        return sendJson(res, 400, { error: 'Invalid JSON' });
       }
+      if (body === null || typeof body !== 'object') body = {};
     }
-    const ip = TRUST_PROXY
-      ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress
-      : req.socket.remoteAddress;
 
-    const result = await matched.handler({ req, params, query: url.searchParams, body, raw, ip });
-    if (result && result.__status) return send(res, result.__status, result.body);
-    send(res, 200, result === undefined ? { ok: true } : result);
+    const result = await matched.handler({ req, res, params, query: url.searchParams, body, raw, ip, user });
+    if (result && result.__raw) return;
+    if (req.method !== 'GET') await pendingSave;
+    if (result && result.__status) return sendJson(res, result.__status, result.body);
+    sendJson(res, 200, result === undefined ? { ok: true } : result);
   } catch (e) {
-    if (e instanceof HttpError) return send(res, e.status, { error: e.message });
+    if (e instanceof HttpError) return sendJson(res, e.status, { error: e.message });
     console.error(e);
-    send(res, 500, { error: 'Server error' });
+    sendJson(res, 500, { error: 'Server error' });
   }
 });
-const fail = (status, message) => {
-  throw new HttpError(status, message);
-};
-const status = (code, body) => ({ __status: code, body });
 
-// ---------- routes: webhook ----------
-route('POST', '/webhooks/razorpay', { raw: true }, ({ req, raw }) => {
-  if (!RZP_WEBHOOK_SECRET) fail(404, 'Not found');
-  const sig = req.headers['x-razorpay-signature'] || '';
-  const expected = crypto.createHmac('sha256', RZP_WEBHOOK_SECRET).update(raw).digest('hex');
-  if (!safeEqual(sig, expected)) fail(400, 'Bad signature');
-  try {
-    const evt = JSON.parse(raw.toString('utf8'));
-    if (evt.event === 'payment.captured') {
-      const p = evt.payload.payment.entity;
-      const order = db.orders.find((o) => o.razorpayOrderId === p.order_id);
-      if (order && p.amount === order.amountPaise) finalizeOrder(order, p.id);
-    }
-  } catch (e) {
-    console.error('webhook parse error', e.message);
-  }
-  return { ok: true };
-});
+// ======================================================================
+// Public routes
+// ======================================================================
+route('GET', '/api/health', () => ({ ok: true, gateway: GATEWAY }));
 
-route('GET', '/health', () => ({ ok: true, mockPayments: MOCK_MODE }));
+route('GET', '/api/config', () => ({
+  siteName: db.settings.siteName,
+  announcement: db.settings.announcement,
+  supportLink: db.settings.supportLink,
+  supportText: db.settings.supportText,
+  minTopup: rupees(db.settings.minTopupPaise),
+  maxTopup: rupees(db.settings.maxTopupPaise),
+  testMode: MOCK_MODE,
+}));
 
-// ---------- routes: public store ----------
-route('GET', '/products', () => {
-  releaseExpired();
-  return db.products.map((p) => ({
-    id: p.id,
-    name: p.name,
-    description: p.description || '',
-    price: p.pricePaise / 100,
-    inStock: stock(p.id),
-  }));
-});
-
-route('POST', '/orders', async ({ body }) => {
-  releaseExpired();
-  const { productId, deviceId } = body;
-  if (typeof deviceId !== 'string' || deviceId.length < 8 || deviceId.length > 100) fail(400, 'deviceId required');
-  const product = db.products.find((p) => p.id === productId);
-  if (!product) fail(404, 'Product not found');
-  const key = db.keys.find((k) => k.productId === product.id && k.status === 'available');
-  if (!key) fail(409, 'Out of stock');
-
-  const order = {
-    id: uid(),
-    productId: product.id,
-    amountPaise: product.pricePaise,
-    deviceId,
-    status: 'created',
-    keyId: key.id,
-    razorpayOrderId: null,
-    paymentId: null,
-    createdAt: now(),
-    paidAt: null,
-  };
-  key.status = 'reserved';
-  key.orderId = order.id;
-
-  try {
-    if (MOCK_MODE) order.razorpayOrderId = 'mock_' + uid();
-    else order.razorpayOrderId = (await createRazorpayOrder(order.amountPaise, order.id.slice(0, 40))).id;
-  } catch (e) {
-    key.status = 'available';
-    key.orderId = null;
-    save();
-    console.error(e.message);
-    fail(502, 'Could not start payment');
-  }
-  db.orders.push(order);
-  save();
-  return {
-    orderId: order.id,
-    razorpayOrderId: order.razorpayOrderId,
-    razorpayKeyId: MOCK_MODE ? 'mock' : RZP_KEY_ID,
-    amountPaise: order.amountPaise,
-    currency: 'INR',
-    productName: product.name,
-    mock: MOCK_MODE,
-  };
-});
-
-route('POST', '/orders/verify', ({ body }) => {
-  const { orderId, deviceId, razorpay_payment_id, razorpay_signature } = body;
-  const order = db.orders.find((o) => o.id === orderId);
-  if (!order || order.deviceId !== deviceId) fail(404, 'Order not found');
-  if (order.status === 'paid') return publicOrder(order);
-  if (typeof razorpay_payment_id !== 'string' || typeof razorpay_signature !== 'string') fail(400, 'Missing payment details');
-  let valid;
-  if (MOCK_MODE) {
-    valid = razorpay_signature === 'mock';
-  } else {
-    const expected = crypto
-      .createHmac('sha256', RZP_KEY_SECRET)
-      .update(`${order.razorpayOrderId}|${razorpay_payment_id}`)
-      .digest('hex');
-    valid = safeEqual(razorpay_signature, expected);
-  }
-  if (!valid) fail(400, 'Payment verification failed');
-  finalizeOrder(order, razorpay_payment_id);
-  return publicOrder(order);
-});
-
-// Lets the app re-fetch a key (e.g. the app was closed mid-payment and the webhook completed it)
-route('GET', '/orders/:id', ({ params, query }) => {
-  const order = db.orders.find((o) => o.id === params.id);
-  if (!order || order.deviceId !== query.get('deviceId')) fail(404, 'Order not found');
-  return publicOrder(order);
-});
-
-// ---------- routes: admin ----------
-const loginAttempts = new Map(); // ip -> {count, since}
-route('POST', '/admin/login', ({ body, ip }) => {
-  const rec = loginAttempts.get(ip) || { count: 0, since: now() };
-  if (now() - rec.since > 15 * 60 * 1000) {
-    rec.count = 0;
-    rec.since = now();
-  }
-  if (rec.count >= 10) fail(429, 'Too many attempts. Try later.');
-  if (typeof body.password !== 'string' || !safeEqual(body.password, ADMIN_PASSWORD)) {
-    rec.count += 1;
-    loginAttempts.set(ip, rec);
-    fail(401, 'Wrong password');
-  }
-  loginAttempts.delete(ip);
-  return { token: signToken(12 * 60 * 60) };
-});
-
-route('GET', '/admin/products', { admin: true }, () => {
-  releaseExpired();
-  return db.products.map((p) => {
-    const ks = db.keys.filter((k) => k.productId === p.id);
-    return {
+route('GET', '/api/products', () =>
+  db.products
+    .filter((p) => p.active)
+    .map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description || '',
-      price: p.pricePaise / 100,
-      available: ks.filter((k) => k.status === 'available').length,
-      reserved: ks.filter((k) => k.status === 'reserved').length,
-      sold: ks.filter((k) => k.status === 'sold').length,
-    };
-  });
+      category: p.category || '',
+      price: rupees(p.pricePaise),
+      inStock: stockOf(p.id),
+    }))
+);
+
+// ----- accounts -----
+const USERNAME_RX = /^[A-Za-z0-9_]{3,20}$/;
+
+route('POST', '/api/signup', async ({ body, ip }) => {
+  limit('signup:' + ip, 8, 3600 * 1000);
+  const username = String(body.username || '').trim();
+  const password = String(body.password || '');
+  if (!USERNAME_RX.test(username)) fail(400, 'Username must be 3 to 20 letters, numbers or _');
+  if (password.length < 6 || password.length > 100) fail(400, 'Password must be at least 6 characters');
+  if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'That username is taken');
+  const user = {
+    id: uid(),
+    username,
+    passHash: await hashPassword(password),
+    balancePaise: 0,
+    banned: false,
+    tv: 1,
+    createdAt: now(),
+    lastLogin: now(),
+  };
+  db.users.push(user);
+  save();
+  return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) };
 });
 
-route('POST', '/admin/products', { admin: true }, ({ body }) => {
-  const { name, description, price } = body;
-  const rupees = Number(price);
-  if (typeof name !== 'string' || !name.trim() || name.length > 100) fail(400, 'Name required');
-  if (!Number.isFinite(rupees) || rupees < 1 || rupees > 500000) fail(400, 'Price must be 1 to 500000');
-  const p = {
-    id: uid(),
-    name: name.trim(),
-    description: typeof description === 'string' ? description.trim().slice(0, 300) : '',
-    pricePaise: Math.round(rupees * 100),
+route('POST', '/api/login', async ({ body, ip }) => {
+  const username = String(body.username || '').trim();
+  limit('login:' + ip, 30, 15 * 60 * 1000);
+  limit('loginu:' + username.toLowerCase(), 10, 15 * 60 * 1000);
+  const user = db.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+  const ok = user ? await checkPassword(String(body.password || ''), user.passHash) : false;
+  if (!user || !ok) fail(401, 'Wrong username or password');
+  if (user.banned) fail(403, 'This account has been blocked');
+  user.lastLogin = now();
+  save();
+  return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) };
+});
+
+route('GET', '/api/me', { auth: 'user' }, ({ user }) => {
+  const orders = db.orders.filter((o) => o.userId === user.id && o.status === 'completed');
+  return {
+    ...publicUser(user),
+    orderCount: orders.length,
+    totalSpent: rupees(orders.reduce((s, o) => s + o.pricePaise, 0)),
   };
+});
+
+route('POST', '/api/me/password', { auth: 'user' }, async ({ user, body }) => {
+  limit('pw:' + user.id, 10, 15 * 60 * 1000);
+  const next = String(body.next || '');
+  if (!(await checkPassword(String(body.current || ''), user.passHash))) fail(400, 'Current password is wrong');
+  if (next.length < 6 || next.length > 100) fail(400, 'New password must be at least 6 characters');
+  user.passHash = await hashPassword(next);
+  user.tv += 1; // logs out every other device
+  save();
+  return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400) };
+});
+
+// ----- shopping -----
+function couponDiscount(code, pricePaise) {
+  if (!code) return { discountPaise: 0, coupon: null };
+  const c = db.coupons.find((x) => x.code.toLowerCase() === String(code).trim().toLowerCase());
+  if (!c || !c.active) fail(400, 'Invalid coupon code');
+  if (c.expiresAt && c.expiresAt < now()) fail(400, 'This coupon has expired');
+  if (c.maxUses > 0 && c.used >= c.maxUses) fail(400, 'This coupon has been fully used');
+  if (c.minOrderPaise && pricePaise < c.minOrderPaise) fail(400, 'Order is too small for this coupon');
+  const d = c.type === 'percent' ? Math.floor((pricePaise * c.value) / 100) : Math.round(c.value * 100);
+  return { discountPaise: Math.min(d, pricePaise), coupon: c };
+}
+
+route('POST', '/api/coupon/check', { auth: 'user' }, ({ body }) => {
+  const product = db.products.find((p) => p.id === body.productId && p.active);
+  if (!product) fail(404, 'Product not found');
+  const { discountPaise } = couponDiscount(body.code, product.pricePaise);
+  return { discount: rupees(discountPaise), finalPrice: rupees(product.pricePaise - discountPaise) };
+});
+
+route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
+  limit('buy:' + user.id, 30, 60 * 1000);
+  const product = db.products.find((p) => p.id === body.productId && p.active);
+  if (!product) fail(404, 'Product not found');
+  const { discountPaise, coupon } = couponDiscount(body.coupon, product.pricePaise);
+  const price = product.pricePaise - discountPaise;
+  if (user.balancePaise < price) {
+    return reply(402, { error: 'Not enough balance', needed: rupees(price - user.balancePaise), balance: rupees(user.balancePaise) });
+  }
+  const key = db.keys.find((k) => k.productId === product.id && k.status === 'available');
+  if (!key) fail(409, 'Out of stock');
+
+  // From here on nothing awaits, so no other request can sneak in between these steps.
+  const order = {
+    id: uid(),
+    userId: user.id,
+    username: user.username,
+    productId: product.id,
+    productName: product.name,
+    listPricePaise: product.pricePaise,
+    pricePaise: price,
+    couponCode: coupon ? coupon.code : null,
+    keyId: key.id,
+    status: 'completed',
+    createdAt: now(),
+  };
+  key.status = 'sold';
+  key.orderId = order.id;
+  if (coupon) coupon.used += 1;
+  addTxn(user, 'purchase', -price, product.name);
+  db.orders.push(order);
+  save();
+  return { orderId: order.id, product: product.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
+});
+
+route('GET', '/api/orders', { auth: 'user' }, ({ user }) =>
+  db.orders
+    .filter((o) => o.userId === user.id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((o) => {
+      const k = db.keys.find((x) => x.id === o.keyId);
+      return {
+        id: o.id,
+        product: o.productName,
+        paid: rupees(o.pricePaise),
+        status: o.status,
+        key: o.status === 'completed' && k ? k.value : null,
+        createdAt: o.createdAt,
+      };
+    })
+);
+
+// ----- wallet -----
+route('GET', '/api/wallet', { auth: 'user' }, ({ user }) => ({
+  balance: rupees(user.balancePaise),
+  transactions: db.txns
+    .filter((t) => t.userId === user.id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 100)
+    .map((t) => ({ id: t.id, type: t.type, amount: rupees(t.amountPaise), note: t.note, createdAt: t.createdAt })),
+}));
+
+route('POST', '/api/topup', { auth: 'user', }, async ({ user, body, req }) => {
+  limit('topup:' + user.id, 10, 3600 * 1000);
+  const amountPaise = Math.round(Number(body.amount) * 100);
+  if (!Number.isFinite(amountPaise) || amountPaise < db.settings.minTopupPaise || amountPaise > db.settings.maxTopupPaise) {
+    fail(400, `Amount must be between ₹${rupees(db.settings.minTopupPaise)} and ₹${rupees(db.settings.maxTopupPaise)}`);
+  }
+  const pay = {
+    id: uid(),
+    userId: user.id,
+    username: user.username,
+    amountPaise,
+    status: 'pending',
+    gateway: GATEWAY,
+    ref: null,
+    payUrl: null,
+    createdAt: now(),
+    paidAt: null,
+  };
+  const baseUrl = PUBLIC_URL || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
+  try {
+    const g = await gateway.create(pay, { returnUrl: `${baseUrl}/?pay=${pay.id}` });
+    pay.ref = g.ref;
+    pay.payUrl = g.payUrl;
+  } catch (e) {
+    console.error('gateway create failed:', e.message);
+    fail(502, 'Could not start the payment. Please try again.');
+  }
+  db.payments.push(pay);
+  save();
+  return { paymentId: pay.id, payUrl: pay.payUrl, amount: rupees(amountPaise), testMode: MOCK_MODE };
+});
+
+// The page calls this after the customer comes back from the payment app.
+route('GET', '/api/payments/:id', { auth: 'user' }, async ({ user, params }) => {
+  const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
+  if (!pay) fail(404, 'Payment not found');
+  if (pay.status === 'pending' && !MOCK_MODE) {
+    try {
+      const r = await gateway.check(pay);
+      if (r.status === 'paid' && r.amountPaise >= pay.amountPaise) settlePayment(pay, 'Wallet top-up');
+      else if (r.status === 'failed') {
+        pay.status = 'failed';
+        save();
+      }
+    } catch (e) {
+      console.error('gateway check failed:', e.message);
+    }
+  }
+  return { id: pay.id, status: pay.status, amount: rupees(pay.amountPaise), balance: rupees(user.balancePaise) };
+});
+
+// Test mode only: pretend the customer paid.
+route('POST', '/api/payments/:id/simulate', { auth: 'user' }, ({ user, params }) => {
+  if (!MOCK_MODE) fail(404, 'Not found');
+  const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
+  if (!pay) fail(404, 'Payment not found');
+  settlePayment(pay, 'Wallet top-up (test)');
+  return { id: pay.id, status: pay.status, amount: rupees(pay.amountPaise), balance: rupees(user.balancePaise) };
+});
+
+// ======================================================================
+// Admin routes
+// ======================================================================
+route('POST', '/api/admin/login', ({ body, ip }) => {
+  limit('admin:' + ip, 10, 15 * 60 * 1000);
+  if (typeof body.password !== 'string' || !safeEqual(body.password, ADMIN_PASSWORD)) fail(401, 'Wrong password');
+  return { token: signToken({ role: 'admin' }, 12 * 3600) };
+});
+
+const A = { auth: 'admin' };
+
+route('GET', '/api/admin/stats', A, () => {
+  const done = db.orders.filter((o) => o.status === 'completed');
+  const today = istDay(now());
+  const sum = (arr) => arr.reduce((s, o) => s + o.pricePaise, 0);
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = istDay(now() - i * 86400000);
+    const os = done.filter((o) => istDay(o.createdAt) === d);
+    days.push({ date: d, orders: os.length, revenue: rupees(sum(os)) });
+  }
+  const byProduct = new Map();
+  for (const o of done) {
+    const r = byProduct.get(o.productName) || { name: o.productName, sold: 0, revenue: 0 };
+    r.sold += 1;
+    r.revenue += rupees(o.pricePaise);
+    byProduct.set(o.productName, r);
+  }
+  const paidTopups = db.payments.filter((p) => p.status === 'paid');
+  return {
+    revenueTotal: rupees(sum(done)),
+    revenueToday: rupees(sum(done.filter((o) => istDay(o.createdAt) === today))),
+    ordersTotal: done.length,
+    ordersToday: done.filter((o) => istDay(o.createdAt) === today).length,
+    usersTotal: db.users.length,
+    usersToday: db.users.filter((u) => istDay(u.createdAt) === today).length,
+    walletBalances: rupees(db.users.reduce((s, u) => s + u.balancePaise, 0)),
+    topupsTotal: rupees(paidTopups.reduce((s, p) => s + p.amountPaise, 0)),
+    pendingPayments: db.payments.filter((p) => p.status === 'pending').length,
+    stockTotal: db.keys.filter((k) => k.status === 'available').length,
+    lowStock: db.products
+      .filter((p) => p.active && stockOf(p.id) <= 3)
+      .map((p) => ({ id: p.id, name: p.name, left: stockOf(p.id) })),
+    topProducts: [...byProduct.values()].sort((a, b) => b.sold - a.sold).slice(0, 5),
+    last7days: days,
+    testMode: MOCK_MODE,
+  };
+});
+
+function adminProduct(p) {
+  const ks = db.keys.filter((k) => k.productId === p.id);
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description || '',
+    category: p.category || '',
+    price: rupees(p.pricePaise),
+    active: p.active,
+    available: ks.filter((k) => k.status === 'available').length,
+    sold: ks.filter((k) => k.status === 'sold').length,
+  };
+}
+function readProductFields(body, partial) {
+  const out = {};
+  if (!partial || body.name !== undefined) {
+    const name = String(body.name || '').trim();
+    if (!name || name.length > 100) fail(400, 'Name required (max 100 characters)');
+    out.name = name;
+  }
+  if (!partial || body.price !== undefined) {
+    const price = Number(body.price);
+    if (!Number.isFinite(price) || price < 1 || price > 500000) fail(400, 'Price must be 1 to 500000');
+    out.pricePaise = Math.round(price * 100);
+  }
+  if (body.description !== undefined) out.description = String(body.description).trim().slice(0, 300);
+  if (body.category !== undefined) out.category = String(body.category).trim().slice(0, 30);
+  if (body.active !== undefined) out.active = !!body.active;
+  return out;
+}
+
+route('GET', '/api/admin/products', A, () => db.products.map(adminProduct));
+
+route('POST', '/api/admin/products', A, ({ body }) => {
+  const f = readProductFields(body, false);
+  const p = { id: uid(), description: '', category: '', active: true, createdAt: now(), ...f };
   db.products.push(p);
   save();
-  return status(201, { id: p.id });
+  return reply(201, { id: p.id });
 });
 
-route('DELETE', '/admin/products/:id', { admin: true }, ({ params }) => {
+route('PUT', '/api/admin/products/:id', A, ({ params, body }) => {
   const p = db.products.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
-  if (db.keys.some((k) => k.productId === p.id && k.status === 'reserved')) {
-    fail(409, 'A payment is in progress. Try again in a few minutes.');
-  }
+  Object.assign(p, readProductFields(body, true));
+  save();
+  return adminProduct(p);
+});
+
+route('DELETE', '/api/admin/products/:id', A, ({ params }) => {
+  const p = db.products.find((x) => x.id === params.id);
+  if (!p) fail(404, 'Not found');
   db.keys = db.keys.filter((k) => !(k.productId === p.id && k.status === 'available'));
   db.products = db.products.filter((x) => x.id !== p.id);
   save();
   return { ok: true };
 });
 
-route('POST', '/admin/products/:id/keys', { admin: true }, ({ params, body }) => {
+route('GET', '/api/admin/products/:id/keys', A, ({ params }) =>
+  db.keys.filter((k) => k.productId === params.id).map((k) => ({ id: k.id, value: k.value, status: k.status }))
+);
+
+route('POST', '/api/admin/products/:id/keys', A, ({ params, body }) => {
   const p = db.products.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
   let list = body.keys;
@@ -413,8 +694,8 @@ route('POST', '/admin/products/:id/keys', { admin: true }, ({ params, body }) =>
   const existing = new Set(db.keys.filter((k) => k.productId === p.id).map((k) => k.value));
   let added = 0;
   let skipped = 0;
-  for (const raw of list.slice(0, 5000)) {
-    const v = String(raw).trim();
+  for (const rawKey of list.slice(0, 5000)) {
+    const v = String(rawKey).trim();
     if (!v) continue;
     if (v.length > 500 || existing.has(v)) {
       skipped++;
@@ -428,17 +709,18 @@ route('POST', '/admin/products/:id/keys', { admin: true }, ({ params, body }) =>
   return { added, skipped };
 });
 
-// Generates random keys server-side in the format XXXX-XXXX-XXXX-XXXX
-route('POST', '/admin/products/:id/generate', { admin: true }, ({ params, body }) => {
+route('POST', '/api/admin/products/:id/generate', A, ({ params, body }) => {
   const p = db.products.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
   const count = Math.min(Math.max(parseInt(body.count, 10) || 0, 1), 500);
+  const prefix = String(body.prefix || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const existing = new Set(db.keys.filter((k) => k.productId === p.id).map((k) => k.value));
   let made = 0;
   while (made < count) {
-    const chars = [...crypto.randomBytes(16)].map((b) => alphabet[b % alphabet.length]);
-    const v = [0, 4, 8, 12].map((i) => chars.slice(i, i + 4).join('')).join('-');
+    const chars = [...crypto.randomBytes(12)].map((b) => alphabet[b % alphabet.length]);
+    const core = [0, 4, 8].map((i) => chars.slice(i, i + 4).join('')).join('-');
+    const v = prefix ? `${prefix}-${core}` : core;
     if (existing.has(v)) continue;
     existing.add(v);
     db.keys.push({ id: uid(), productId: p.id, value: v, status: 'available', orderId: null, addedAt: now() });
@@ -448,14 +730,7 @@ route('POST', '/admin/products/:id/generate', { admin: true }, ({ params, body }
   return { added: made };
 });
 
-route('GET', '/admin/products/:id/keys', { admin: true }, ({ params }) => {
-  releaseExpired();
-  return db.keys
-    .filter((k) => k.productId === params.id)
-    .map((k) => ({ id: k.id, value: k.value, status: k.status }));
-});
-
-route('DELETE', '/admin/keys/:id', { admin: true }, ({ params }) => {
+route('DELETE', '/api/admin/keys/:id', A, ({ params }) => {
   const k = db.keys.find((x) => x.id === params.id);
   if (!k) fail(404, 'Not found');
   if (k.status !== 'available') fail(409, 'Only unsold keys can be deleted');
@@ -464,30 +739,232 @@ route('DELETE', '/admin/keys/:id', { admin: true }, ({ params }) => {
   return { ok: true };
 });
 
-route('GET', '/admin/orders', { admin: true }, () => {
-  releaseExpired();
-  return db.orders
-    .slice()
+// ----- users -----
+route('GET', '/api/admin/users', A, ({ query }) => {
+  const q = (query.get('q') || '').toLowerCase();
+  return db.users
+    .filter((u) => !q || u.username.toLowerCase().includes(q))
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 200)
+    .slice(0, 300)
+    .map((u) => ({
+      id: u.id,
+      username: u.username,
+      balance: rupees(u.balancePaise),
+      banned: u.banned,
+      createdAt: u.createdAt,
+      lastLogin: u.lastLogin,
+      orders: db.orders.filter((o) => o.userId === u.id && o.status === 'completed').length,
+    }));
+});
+
+route('GET', '/api/admin/users/:id', A, ({ params }) => {
+  const u = db.users.find((x) => x.id === params.id);
+  if (!u) fail(404, 'Not found');
+  return {
+    id: u.id,
+    username: u.username,
+    balance: rupees(u.balancePaise),
+    banned: u.banned,
+    createdAt: u.createdAt,
+    lastLogin: u.lastLogin,
+    transactions: db.txns
+      .filter((t) => t.userId === u.id)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 50)
+      .map((t) => ({ type: t.type, amount: rupees(t.amountPaise), note: t.note, createdAt: t.createdAt })),
+    orders: db.orders
+      .filter((o) => o.userId === u.id)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 50)
+      .map((o) => ({ id: o.id, product: o.productName, paid: rupees(o.pricePaise), status: o.status, createdAt: o.createdAt })),
+  };
+});
+
+route('POST', '/api/admin/users/:id/ban', A, ({ params, body }) => {
+  const u = db.users.find((x) => x.id === params.id);
+  if (!u) fail(404, 'Not found');
+  u.banned = !!body.banned;
+  if (u.banned) u.tv += 1;
+  save();
+  return { banned: u.banned };
+});
+
+route('POST', '/api/admin/users/:id/balance', A, ({ params, body }) => {
+  const u = db.users.find((x) => x.id === params.id);
+  if (!u) fail(404, 'Not found');
+  const amountPaise = Math.round(Number(body.amount) * 100);
+  if (!Number.isFinite(amountPaise) || amountPaise === 0 || Math.abs(amountPaise) > 10000000) fail(400, 'Enter an amount (use minus to deduct)');
+  if (u.balancePaise + amountPaise < 0) fail(400, 'Balance cannot go below zero');
+  addTxn(u, 'admin', amountPaise, String(body.note || 'Admin adjustment').slice(0, 100));
+  save();
+  return { balance: rupees(u.balancePaise) };
+});
+
+route('POST', '/api/admin/users/:id/password', A, async ({ params, body }) => {
+  const u = db.users.find((x) => x.id === params.id);
+  if (!u) fail(404, 'Not found');
+  const pw = String(body.password || '');
+  if (pw.length < 6 || pw.length > 100) fail(400, 'Password must be at least 6 characters');
+  u.passHash = await hashPassword(pw);
+  u.tv += 1;
+  save();
+  return { ok: true };
+});
+
+// ----- orders and payments -----
+function adminOrderRows(query) {
+  const q = (query.get('q') || '').toLowerCase();
+  const status = query.get('status') || '';
+  return db.orders
+    .filter((o) => (!status || o.status === status) && (!q || o.username.toLowerCase().includes(q) || o.productName.toLowerCase().includes(q)))
+    .sort((a, b) => b.createdAt - a.createdAt)
     .map((o) => {
-      const p = db.products.find((x) => x.id === o.productId);
       const k = db.keys.find((x) => x.id === o.keyId);
       return {
         id: o.id,
-        product: p ? p.name : '(deleted)',
-        amount: o.amountPaise / 100,
+        username: o.username,
+        product: o.productName,
+        paid: rupees(o.pricePaise),
+        coupon: o.couponCode,
         status: o.status,
-        paymentId: o.paymentId,
-        key: o.status === 'paid' && k ? k.value : null,
+        key: k ? k.value : null,
         createdAt: o.createdAt,
       };
     });
+}
+
+route('GET', '/api/admin/orders', A, ({ query }) => adminOrderRows(query).slice(0, 300));
+
+route('GET', '/api/admin/orders.csv', A, ({ res, query }) => {
+  const rows = adminOrderRows(query);
+  const lines = [['Date', 'User', 'Product', 'Paid (INR)', 'Coupon', 'Status', 'Key'].map(csvCell).join(',')];
+  for (const o of rows) {
+    lines.push([new Date(o.createdAt).toISOString(), o.username, o.product, o.paid, o.coupon || '', o.status, o.key || ''].map(csvCell).join(','));
+  }
+  res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="orders.csv"' });
+  res.end(lines.join('\n'));
+  return { __raw: true };
 });
 
-if (require.main === module) {
+route('POST', '/api/admin/orders/:id/refund', A, ({ params }) => {
+  const o = db.orders.find((x) => x.id === params.id);
+  if (!o) fail(404, 'Not found');
+  if (o.status !== 'completed') fail(409, 'Already refunded');
+  const u = db.users.find((x) => x.id === o.userId);
+  if (!u) fail(404, 'User not found');
+  o.status = 'refunded';
+  addTxn(u, 'refund', o.pricePaise, 'Refund: ' + o.productName);
+  save();
+  return { ok: true };
+});
+
+route('GET', '/api/admin/payments', A, () =>
+  db.payments
+    .slice()
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 300)
+    .map((p) => ({ id: p.id, username: p.username, amount: rupees(p.amountPaise), status: p.status, gateway: p.gateway, createdAt: p.createdAt }))
+);
+
+route('POST', '/api/admin/payments/:id/approve', A, ({ params }) => {
+  const p = db.payments.find((x) => x.id === params.id);
+  if (!p) fail(404, 'Not found');
+  if (p.status === 'paid') fail(409, 'Already paid');
+  settlePayment(p, 'Wallet top-up (approved by admin)');
+  return { status: p.status };
+});
+
+// ----- coupons -----
+route('GET', '/api/admin/coupons', A, () =>
+  db.coupons.map((c) => ({
+    id: c.id, code: c.code, type: c.type, value: c.value, maxUses: c.maxUses, used: c.used,
+    expiresAt: c.expiresAt, active: c.active, minOrder: rupees(c.minOrderPaise || 0),
+  }))
+);
+
+route('POST', '/api/admin/coupons', A, ({ body }) => {
+  const code = String(body.code || '').trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{3,20}$/.test(code)) fail(400, 'Code must be 3 to 20 letters or numbers');
+  if (db.coupons.some((c) => c.code === code)) fail(409, 'That code already exists');
+  const type = body.type === 'flat' ? 'flat' : 'percent';
+  const value = Number(body.value);
+  if (!Number.isFinite(value) || value <= 0 || (type === 'percent' && value > 100)) fail(400, 'Enter a valid discount');
+  const days = Number(body.days);
+  db.coupons.push({
+    id: uid(),
+    code,
+    type,
+    value,
+    maxUses: Math.max(0, parseInt(body.maxUses, 10) || 0),
+    used: 0,
+    expiresAt: Number.isFinite(days) && days > 0 ? now() + days * 86400000 : null,
+    minOrderPaise: Math.max(0, Math.round((Number(body.minOrder) || 0) * 100)),
+    active: true,
+    createdAt: now(),
+  });
+  save();
+  return reply(201, { ok: true });
+});
+
+route('POST', '/api/admin/coupons/:id/toggle', A, ({ params }) => {
+  const c = db.coupons.find((x) => x.id === params.id);
+  if (!c) fail(404, 'Not found');
+  c.active = !c.active;
+  save();
+  return { active: c.active };
+});
+
+route('DELETE', '/api/admin/coupons/:id', A, ({ params }) => {
+  db.coupons = db.coupons.filter((x) => x.id !== params.id);
+  save();
+  return { ok: true };
+});
+
+// ----- settings -----
+route('GET', '/api/admin/settings', A, () => ({
+  siteName: db.settings.siteName,
+  announcement: db.settings.announcement,
+  supportLink: db.settings.supportLink,
+  supportText: db.settings.supportText,
+  minTopup: rupees(db.settings.minTopupPaise),
+  maxTopup: rupees(db.settings.maxTopupPaise),
+  gateway: GATEWAY,
+  storage: REMOTE_URL ? 'Upstash (durable)' : 'Local file (resets on free hosting)',
+}));
+
+route('PUT', '/api/admin/settings', A, ({ body }) => {
+  const s = db.settings;
+  if (body.siteName !== undefined) s.siteName = String(body.siteName).trim().slice(0, 40) || 'Key Store';
+  if (body.announcement !== undefined) s.announcement = String(body.announcement).trim().slice(0, 300);
+  if (body.supportText !== undefined) s.supportText = String(body.supportText).trim().slice(0, 40);
+  if (body.supportLink !== undefined) {
+    const link = String(body.supportLink).trim();
+    if (link && !/^https?:\/\//i.test(link)) fail(400, 'Support link must start with http:// or https://');
+    s.supportLink = link.slice(0, 200);
+  }
+  if (body.minTopup !== undefined) s.minTopupPaise = Math.max(100, Math.round(Number(body.minTopup) * 100) || 1000);
+  if (body.maxTopup !== undefined) s.maxTopupPaise = Math.max(s.minTopupPaise, Math.round(Number(body.maxTopup) * 100) || 1000000);
+  save();
+  return { ok: true };
+});
+
+// ======================================================================
+// Start
+// ======================================================================
+async function start() {
+  await loadDb();
   server.listen(PORT, () => {
-    console.log(`Server on :${PORT} | payments: ${MOCK_MODE ? 'MOCK (testing only)' : 'Razorpay'}`);
+    console.log(`Server on :${PORT} | payments: ${GATEWAY}${MOCK_MODE ? ' (TEST MODE, no real money)' : ''} | storage: ${REMOTE_URL ? 'Upstash' : 'file'}`);
   });
 }
-module.exports = server;
+if (require.main === module) {
+  start().catch((e) => {
+    console.error('Startup failed:', e.message);
+    process.exit(1);
+  });
+  process.on('SIGTERM', async () => {
+    await pendingSave;
+    process.exit(0);
+  });
+}
+module.exports = { server, start, _db: () => db };

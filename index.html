@@ -2,55 +2,121 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#3F51B5">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07080f">
 <title>Key Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f4f5fa; --card:#fff; --ink:#1b1d2a; --muted:#6a6f85; --brand:#3F51B5; --err:#c62828; --ok:#2e7d32; --line:#e3e5ef; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#12131a; --card:#1c1e29; --ink:#eceef7; --muted:#9aa0b8; --brand:#8c9eff; --err:#ff8a80; --ok:#81c784; --line:#2c2f3e; }
+  :root {
+    --bg:#07080f; --panel:#0f1120; --panel2:#171a38; --line:#252a55; --ink:#e9ebff; --muted:#8e94c0;
+    --v:#8b5cf6; --c:#22d3ee; --p:#f43f9e; --ok:#34d399; --err:#fb7185; --warn:#fbbf24;
+    --head:'Orbitron', system-ui, sans-serif; --body:'Rajdhani', system-ui, -apple-system, 'Segoe UI', sans-serif;
   }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  header { position:sticky; top:0; z-index:5; background:var(--brand); color:#fff; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  header h1 { font-size:18px; margin:0; }
-  nav { display:flex; gap:4px; }
-  nav a { color:#fff; text-decoration:none; padding:6px 10px; border-radius:8px; font-size:14px; }
-  nav a.on { background:rgba(255,255,255,.22); }
-  main { max-width:640px; margin:0 auto; padding:16px; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { scroll-behavior:smooth; }
+  body {
+    margin:0; color:var(--ink); font:600 17px/1.4 var(--body); min-height:100vh; padding-bottom:84px;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(139,92,246,.28), transparent 60%),
+      radial-gradient(700px 450px at -10% 20%, rgba(34,211,238,.16), transparent 60%),
+      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px) 0 0/36px 36px,
+      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px) 0 0/36px 36px,
+      var(--bg);
+    background-attachment: fixed;
+  }
+  header {
+    position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 16px; background:rgba(7,8,15,.82); backdrop-filter:blur(10px); border-bottom:1px solid var(--line);
+  }
+  .logo { font:900 18px var(--head); letter-spacing:1.5px; background:linear-gradient(90deg,var(--c),var(--v),var(--p)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  main { max-width:680px; margin:0 auto; padding:16px; }
+  h2 { font:700 17px var(--head); letter-spacing:1px; margin:6px 0 12px; text-transform:uppercase; }
   .stack { display:flex; flex-direction:column; gap:12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:8px; }
-  .card h3 { margin:0; font-size:17px; }
-  .card p { margin:0; }
+  .grid { display:grid; grid-template-columns:1fr; gap:12px; }
+  @media (min-width:560px) { .grid { grid-template-columns:1fr 1fr; } }
+
+  .card {
+    border:1px solid transparent; border-radius:16px; padding:16px; position:relative;
+    background:linear-gradient(160deg,var(--panel2),var(--panel)) padding-box, linear-gradient(135deg,rgba(139,92,246,.75),rgba(34,211,238,.35),rgba(244,63,158,.45)) border-box;
+    box-shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  .card.hot:hover { transform:translateY(-2px); box-shadow:0 10px 36px rgba(139,92,246,.28); }
+  .card { transition:transform .15s, box-shadow .15s; }
+  .card h3 { margin:0 0 4px; font:700 18px var(--head); letter-spacing:.5px; }
+  .tag { display:inline-block; font-size:12px; letter-spacing:1px; padding:2px 10px; border-radius:999px; background:rgba(34,211,238,.12); color:var(--c); border:1px solid rgba(34,211,238,.35); text-transform:uppercase; }
+  .tag.ok { background:rgba(52,211,153,.12); color:var(--ok); border-color:rgba(52,211,153,.4); }
+  .tag.bad { background:rgba(251,113,133,.12); color:var(--err); border-color:rgba(251,113,133,.4); }
+  .tag.warn { background:rgba(251,191,36,.12); color:var(--warn); border-color:rgba(251,191,36,.4); }
   .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-  .price { font-size:22px; font-weight:700; }
-  .muted, small { color:var(--muted); }
+  .price { font:900 24px var(--head); color:var(--c); text-shadow:0 0 18px rgba(34,211,238,.45); }
+  .muted { color:var(--muted); }
+  .small { font-size:14px; }
   .err { color:var(--err); }
-  .key { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:18px; word-break:break-all; user-select:all; background:var(--bg); padding:10px; border-radius:8px; }
-  button { font:inherit; padding:10px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
-  button.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
-  button.danger { color:var(--err); }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  input, textarea { font:inherit; width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
-  label { font-size:13px; color:var(--muted); display:block; margin-bottom:4px; }
-  .tabs { display:flex; gap:8px; }
-  .tabs button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
-  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#222; color:#fff; padding:10px 16px; border-radius:10px; max-width:90%; display:none; z-index:20; text-align:center; }
-  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px; z-index:15; }
-  .modal { background:var(--card); border-radius:16px; padding:20px; width:100%; max-width:420px; display:flex; flex-direction:column; gap:12px; }
-  .badge { font-size:12px; padding:2px 8px; border-radius:999px; background:var(--bg); border:1px solid var(--line); }
+
+  .btn {
+    font:700 16px var(--body); letter-spacing:1px; text-transform:uppercase; cursor:pointer; color:var(--ink);
+    padding:11px 18px; border-radius:12px; border:1px solid var(--line); background:var(--panel2);
+  }
+  .btn:active { transform:scale(.97); }
+  .btn.primary { border:0; color:#fff; background:linear-gradient(90deg,var(--v),var(--c)); box-shadow:0 0 22px rgba(139,92,246,.5); }
+  .btn.ghost { background:transparent; }
+  .btn.danger { color:var(--err); border-color:rgba(251,113,133,.5); }
+  .btn.full { width:100%; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
+
+  input, select { font:600 17px var(--body); width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:#0b0d1d; color:var(--ink); outline:none; }
+  input:focus { border-color:var(--v); box-shadow:0 0 0 3px rgba(139,92,246,.25); }
+  label { display:block; font-size:13px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin:0 0 4px; }
+
+  .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { flex:none; padding:7px 14px; border-radius:999px; border:1px solid var(--line); background:var(--panel); color:var(--muted); cursor:pointer; font:700 14px var(--body); letter-spacing:1px; text-transform:uppercase; }
+  .chip.on { background:linear-gradient(90deg,var(--v),var(--c)); color:#fff; border-color:transparent; box-shadow:0 0 16px rgba(139,92,246,.45); }
+
+  .banner { border-radius:14px; padding:12px 14px; background:linear-gradient(90deg,rgba(139,92,246,.25),rgba(244,63,158,.2)); border:1px solid rgba(139,92,246,.5); }
+  .test { border-radius:10px; padding:8px 12px; background:rgba(251,191,36,.1); border:1px dashed rgba(251,191,36,.6); color:var(--warn); font-size:14px; }
+
+  .wallet {
+    text-align:center; padding:22px 16px;
+    background:radial-gradient(400px 160px at 50% 0, rgba(34,211,238,.25), transparent), linear-gradient(160deg,#1b1f4a,#0f1120);
+  }
+  .wallet .big { font:900 40px var(--head); color:#fff; text-shadow:0 0 28px rgba(34,211,238,.6); }
+
+  .key { font:700 20px ui-monospace,Menlo,Consolas,monospace; letter-spacing:1px; word-break:break-all; user-select:all; background:#070916; border:1px dashed rgba(34,211,238,.55); color:var(--c); padding:12px; border-radius:10px; text-shadow:0 0 12px rgba(34,211,238,.5); }
+
+  nav.bottom {
+    position:fixed; left:0; right:0; bottom:0; z-index:10; display:flex; justify-content:space-around;
+    padding:8px 6px calc(8px + env(safe-area-inset-bottom)); background:rgba(7,8,15,.92); backdrop-filter:blur(12px); border-top:1px solid var(--line);
+  }
+  nav.bottom button { flex:1; max-width:140px; background:none; border:0; color:var(--muted); font:700 12px var(--body); letter-spacing:1px; text-transform:uppercase; display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px; border-radius:12px; cursor:pointer; }
+  nav.bottom button span { font-size:22px; filter:grayscale(1); }
+  nav.bottom button.on { color:var(--c); background:rgba(34,211,238,.08); }
+  nav.bottom button.on span { filter:none; }
+
+  .overlay { position:fixed; inset:0; z-index:30; background:rgba(3,4,10,.75); backdrop-filter:blur(4px); display:flex; align-items:flex-end; justify-content:center; padding:0; }
+  @media (min-width:560px) { .overlay { align-items:center; padding:16px; } }
+  .modal { width:100%; max-width:440px; max-height:92vh; overflow:auto; border-radius:22px 22px 0 0; padding:20px; display:flex; flex-direction:column; gap:12px;
+    background:linear-gradient(160deg,var(--panel2),var(--panel)) padding-box, linear-gradient(135deg,var(--v),var(--c),var(--p)) border-box; border:1px solid transparent; animation:up .22s ease-out; }
+  @media (min-width:560px) { .modal { border-radius:22px; } }
+  @keyframes up { from { transform:translateY(24px); opacity:0; } to { transform:none; opacity:1; } }
+  .unlock { font:900 22px var(--head); text-align:center; background:linear-gradient(90deg,var(--c),var(--ok)); -webkit-background-clip:text; background-clip:text; color:transparent; letter-spacing:2px; animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { filter:brightness(1.4); } }
+
+  #toast { position:fixed; left:50%; bottom:100px; transform:translateX(-50%); background:#0b0d1d; border:1px solid var(--v); color:var(--ink); padding:10px 16px; border-radius:12px; max-width:90%; display:none; z-index:50; text-align:center; box-shadow:0 0 24px rgba(139,92,246,.5); }
+  .spin { width:22px; height:22px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--c); animation:sp .8s linear infinite; display:inline-block; vertical-align:middle; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  .tx-in { color:var(--ok); } .tx-out { color:var(--err); }
 </style>
 </head>
 <body>
 <header>
-  <h1>Key Store</h1>
-  <nav>
-    <a href="#store" id="n-store">Store</a>
-    <a href="#keys" id="n-keys">My keys</a>
-    <a href="#admin" id="n-admin">Admin</a>
-  </nav>
+  <div class="logo" id="logo">KEY STORE</div>
+  <div id="hright"></div>
 </header>
 <main id="view"></main>
+<nav class="bottom" id="nav"></nav>
 <div id="toast"></div>
 
 <script>
@@ -59,7 +125,6 @@
 
 // ---------- helpers ----------
 const view = document.getElementById('view');
-
 function h(tag, attrs, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -67,379 +132,330 @@ function h(tag, attrs, ...kids) {
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
     else if (v !== false && v != null) e.setAttribute(k, v);
   }
-  for (const kid of kids.flat()) {
-    if (kid == null || kid === false) continue;
-    e.append(kid); // strings become text nodes, never HTML
-  }
+  for (const kid of kids.flat()) { if (kid == null || kid === false) continue; e.append(kid); }
   return e;
 }
-const rupees = (v) => '₹' + (Number.isInteger(v) ? v : v.toFixed(2));
-const when = (ms) => new Date(ms).toLocaleString();
-
+const rupees = (v) => '₹' + (Number.isInteger(v) ? v : Number(v).toFixed(2));
+const when = (ms) => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 let toastTimer;
 function toast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.display = 'block';
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.style.display = 'none'), 3500);
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.style.display = 'none'), 3500);
 }
-
-const local = {
-  list(name) { try { return JSON.parse(localStorage.getItem(name) || '[]'); } catch (e) { return []; } },
-  save(name, v) { try { localStorage.setItem(name, JSON.stringify(v)); } catch (e) {} },
-  get deviceId() {
-    let id = null;
-    try { id = localStorage.getItem('deviceId'); } catch (e) {}
-    if (!id) {
-      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
-        : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
-      try { localStorage.setItem('deviceId', id); } catch (e) {}
-    }
-    return id;
-  },
-};
-
-async function api(method, path, body, token) {
-  let res;
-  try {
-    res = await fetch(path, {
-      method,
-      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (e) {
-    throw new Error('Cannot reach the server. Check your internet.');
-  }
-  let data = {};
-  try { data = await res.json(); } catch (e) {}
-  if (!res.ok) {
-    const err = new Error(data.error || 'Error ' + res.status);
-    err.code = res.status;
-    throw err;
-  }
-  return data;
-}
-
-const adminToken = () => { try { return sessionStorage.getItem('adminToken'); } catch (e) { return null; } };
-async function adminApi(method, path, body) {
-  try {
-    return await api(method, path, body, adminToken());
-  } catch (e) {
-    if (e.code === 401) {
-      try { sessionStorage.removeItem('adminToken'); } catch (_) {}
-      toast('Session expired. Please log in again.');
-      if (location.hash !== '#admin') location.hash = '#admin'; else render();
-    }
-    throw e;
-  }
-}
-
-function copyText(text) {
-  const done = () => toast('Copied');
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(done, () => toast('Press and hold the key to copy'));
-  } else {
-    const ta = h('textarea', { style: 'position:fixed;opacity:0' });
-    ta.value = text;
-    document.body.append(ta);
-    ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) { toast('Press and hold the key to copy'); }
-    ta.remove();
-  }
-}
-
 function modal(...content) {
   const ov = h('div', { class: 'overlay' }, h('div', { class: 'modal' }, ...content));
+  ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
   ov.close = () => ov.remove();
   document.body.append(ov);
   return ov;
 }
-
-// ---------- customer side ----------
-function showKey(purchase) {
-  const ov = modal(
-    h('h3', {}, 'Payment successful'),
-    h('div', {}, purchase.product),
-    h('div', { class: 'key' }, purchase.key),
-    h('small', { class: 'muted' }, 'This key is also saved under My keys on this browser.'),
-    h('div', { class: 'row' },
-      h('button', { class: 'primary', onclick: () => copyText(purchase.key) }, 'Copy key'),
-      h('button', { onclick: () => ov.close() }, 'Close')),
-  );
-}
-
-function handleResult(product, r) {
-  if (r.key) {
-    const p = { orderId: r.orderId, product, key: r.key, time: Date.now() };
-    const all = local.list('purchases');
-    if (!all.some((x) => x.orderId === p.orderId)) { all.push(p); local.save('purchases', all); }
-    local.save('pending', local.list('pending').filter((x) => x.orderId !== r.orderId));
-    showKey(p);
-    if (currentView() === 'store') render();
-  } else if (r.status === 'paid_no_stock') {
-    local.save('pending', local.list('pending').filter((x) => x.orderId !== r.orderId));
-    toast('Payment received but the item sold out. Contact support for a refund.');
-  } else {
-    toast('Payment is still processing. Check My keys in a minute.');
+function copyText(text) {
+  const ok = () => toast('Copied!');
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(ok, () => toast('Press and hold the key to copy'));
+  else {
+    const ta = h('textarea', { style: 'position:fixed;opacity:0' }); ta.value = text; document.body.append(ta); ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { toast('Press and hold the key to copy'); }
+    ta.remove();
   }
 }
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
 
-async function complete(order, paymentId, signature) {
+// ---------- state ----------
+let cfg = { siteName: 'Key Store', announcement: '', supportLink: '', supportText: 'Contact support', testMode: false, minTopup: 10, maxTopup: 10000 };
+let token = store.get('ks_token');
+let me = null;
+let tab = 'shop';
+let products = [];
+let category = 'All';
+let search = '';
+
+async function api(method, path, body) {
+  let res;
   try {
-    const r = await api('POST', '/orders/verify', {
-      orderId: order.orderId, deviceId: local.deviceId,
-      razorpay_payment_id: paymentId, razorpay_signature: signature,
-    });
-    handleResult(order.productName, r);
-  } catch (e) {
-    toast('Payment received but not confirmed yet (' + e.message + '). Check My keys in a minute.');
+    res = await fetch(path, { method, headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: body ? JSON.stringify(body) : undefined });
+  } catch (e) { throw new Error('Cannot reach the server. Check your internet.'); }
+  let data = {}; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    if (res.status === 401 && token) { logout(true); }
+    const err = new Error(data.error || 'Error ' + res.status); err.code = res.status; err.data = data; throw err;
   }
+  return data;
 }
 
-let rzpPromise;
-function loadRazorpay() {
-  if (window.Razorpay) return Promise.resolve();
-  if (!rzpPromise) {
-    rzpPromise = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      s.onload = resolve;
-      s.onerror = () => { rzpPromise = null; reject(new Error('Could not load the payment screen')); };
-      document.head.append(s);
-    });
-  }
-  return rzpPromise;
+function logout(silent) {
+  token = null; me = null; store.del('ks_token');
+  if (!silent) toast('Logged out');
+  tab = 'shop'; draw();
 }
 
-let buying = false;
-async function buy(p) {
-  if (buying) return;
-  buying = true;
-  try {
-    const o = await api('POST', '/orders', { productId: p.id, deviceId: local.deviceId });
-    const pend = local.list('pending');
-    pend.push({ orderId: o.orderId, product: p.name, time: Date.now() });
-    local.save('pending', pend);
-    if (o.mock) {
-      if (confirm('TEST MODE (no real money).\nPretend to pay ' + rupees(o.amountPaise / 100) + ' for ' + o.productName + '?')) {
-        await complete(o, 'pay_mock_' + Date.now(), 'mock');
-      } else {
-        toast('Cancelled');
-      }
-    } else {
-      await loadRazorpay();
-      const rzp = new window.Razorpay({
-        key: o.razorpayKeyId,
-        amount: o.amountPaise,
-        currency: 'INR',
-        name: 'Key Store',
-        description: o.productName,
-        order_id: o.razorpayOrderId,
-        handler: (r) => complete(o, r.razorpay_payment_id, r.razorpay_signature),
-        modal: { ondismiss: () => toast('Payment not completed') },
-        theme: { color: '#3F51B5' },
-      });
-      rzp.on('payment.failed', () => toast('Payment failed. Please try again.'));
-      rzp.open();
-    }
-  } catch (e) {
-    toast(e.message);
-    if (currentView() === 'store') render();
-  } finally {
-    buying = false;
-  }
+// ---------- chrome ----------
+function drawChrome() {
+  document.title = cfg.siteName;
+  document.getElementById('logo').textContent = cfg.siteName.toUpperCase();
+  const right = document.getElementById('hright');
+  right.replaceChildren(me
+    ? h('button', { class: 'btn', style: 'padding:7px 14px', onclick: () => { tab = 'wallet'; draw(); } }, '🪙 ' + rupees(me.balance))
+    : h('button', { class: 'btn primary', style: 'padding:7px 14px', onclick: () => authModal() }, 'Login'));
+  const items = [['shop', '🎮', 'Shop'], ['wallet', '🪙', 'Wallet'], ['keys', '🔑', 'My keys'], ['me', '👤', 'Profile']];
+  document.getElementById('nav').replaceChildren(...items.map(([id, icon, label]) =>
+    h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; draw(); window.scrollTo(0, 0); } }, h('span', {}, icon), label)));
 }
 
-// Fetch keys for orders that were paid while the page was closed
-async function recoverPending() {
-  for (const p of local.list('pending')) {
-    try {
-      const r = await api('GET', '/orders/' + encodeURIComponent(p.orderId) + '?deviceId=' + encodeURIComponent(local.deviceId));
-      if (r.key || r.status === 'paid_no_stock') handleResult(p.product, r);
-      else if (r.status === 'expired' && Date.now() - p.time > 6 * 3600 * 1000) {
-        local.save('pending', local.list('pending').filter((x) => x.orderId !== p.orderId));
-      }
-    } catch (e) {
-      if (e.code === 404) local.save('pending', local.list('pending').filter((x) => x.orderId !== p.orderId));
-    }
-  }
+function needLogin(text) {
+  return h('div', { class: 'card stack', style: 'text-align:center' },
+    h('h3', {}, 'Login required'), h('p', { class: 'muted' }, text),
+    h('button', { class: 'btn primary', onclick: () => authModal() }, 'Login / Sign up'));
 }
 
-async function storeView() {
-  const box = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Loading…'));
-  view.replaceChildren(box);
-  let products;
-  try {
-    products = await api('GET', '/products');
-  } catch (e) {
-    box.replaceChildren(h('p', { class: 'err' }, e.message), h('button', { onclick: render }, 'Retry'));
-    return;
-  }
-  if (!products.length) { box.replaceChildren(h('p', { class: 'muted' }, 'No products yet.')); return; }
-  box.replaceChildren(...products.map((p) =>
-    h('div', { class: 'card' },
-      h('h3', {}, p.name),
-      p.description ? h('p', {}, p.description) : null,
-      h('div', { class: 'row' },
-        h('div', {}, h('div', { class: 'price' }, rupees(p.price)), h('small', {}, p.inStock > 0 ? 'In stock' : 'Out of stock')),
-        h('button', { class: 'primary', disabled: p.inStock < 1 ? '' : false, onclick: () => buy(p) }, 'Buy with UPI')))));
-  recoverPending();
+async function draw() {
+  drawChrome();
+  if (tab === 'shop') return shopView();
+  if (!token) return view.replaceChildren(needLogin(tab === 'wallet' ? 'Log in to see your wallet and add money.' : tab === 'keys' ? 'Log in to see the keys you bought.' : 'Log in to see your profile.'));
+  if (tab === 'wallet') return walletView();
+  if (tab === 'keys') return keysView();
+  return profileView();
 }
 
-function keysView() {
-  const list = local.list('purchases').sort((a, b) => b.time - a.time);
-  if (!list.length) { view.replaceChildren(h('p', { class: 'muted' }, 'You have not bought any keys yet.')); recoverPending(); return; }
-  view.replaceChildren(h('div', { class: 'stack' }, list.map((p) =>
-    h('div', { class: 'card' },
-      h('h3', {}, p.product),
-      h('div', { class: 'key' }, p.key),
-      h('div', { class: 'row' }, h('small', {}, when(p.time)), h('button', { onclick: () => copyText(p.key) }, 'Copy'))))));
-  recoverPending();
-}
-
-// ---------- admin side ----------
-let adminTab = 'products';
-let adminProductId = null;
-
-function adminLoginView() {
-  const pw = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
-  const btn = h('button', { class: 'primary' }, 'Log in');
-  const go = async () => {
-    btn.disabled = true;
-    try {
-      const r = await api('POST', '/admin/login', { password: pw.value });
-      try { sessionStorage.setItem('adminToken', r.token); } catch (e) {}
-      render();
-    } catch (e) { toast(e.message); btn.disabled = false; }
+// ---------- auth ----------
+function authModal(startSignup) {
+  let signup = !!startSignup;
+  const box = h('div', { class: 'stack' });
+  const ov = modal(box);
+  const render = () => {
+    const u = h('input', { placeholder: 'Username', autocomplete: 'username', autocapitalize: 'none' });
+    const p = h('input', { type: 'password', placeholder: 'Password (min 6 characters)', autocomplete: signup ? 'new-password' : 'current-password' });
+    const btn = h('button', { class: 'btn primary full' }, signup ? 'Create account' : 'Login');
+    const go = async () => {
+      btn.disabled = true;
+      try {
+        const r = await api('POST', signup ? '/api/signup' : '/api/login', { username: u.value, password: p.value });
+        token = r.token; store.set('ks_token', token); me = r.user; ov.close();
+        toast('Welcome, ' + me.username + '!'); await draw(); handlePaymentReturn();
+      } catch (e) { toast(e.message); btn.disabled = false; }
+    };
+    btn.addEventListener('click', go);
+    p.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    box.replaceChildren(
+      h('div', { class: 'unlock', style: 'font-size:18px' }, signup ? 'JOIN THE GAME' : 'WELCOME BACK'),
+      h('div', {}, h('label', {}, 'Username'), u),
+      h('div', {}, h('label', {}, 'Password'), p),
+      btn,
+      h('button', { class: 'btn ghost full', onclick: () => { signup = !signup; render(); } }, signup ? 'Have an account? Login' : 'New here? Sign up'));
   };
-  btn.addEventListener('click', go);
-  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  view.replaceChildren(h('div', { class: 'stack' }, h('h3', {}, 'Admin login'), pw, btn));
+  render();
 }
 
-function logoutButton() {
-  return h('button', { onclick: () => { try { sessionStorage.removeItem('adminToken'); } catch (e) {} adminProductId = null; render(); } }, 'Log out');
+// ---------- shop ----------
+async function shopView() {
+  const wrap = h('div', { class: 'stack' });
+  view.replaceChildren(wrap);
+  if (cfg.announcement) wrap.append(h('div', { class: 'banner' }, '📢 ' + cfg.announcement));
+  if (cfg.testMode) wrap.append(h('div', { class: 'test' }, 'TEST MODE: payments are simulated, no real money is used.'));
+  const list = h('div', { class: 'grid' }, h('div', { class: 'muted' }, h('span', { class: 'spin' }), ' Loading…'));
+  const chipsBox = h('div', { class: 'chips' });
+  const searchBox = h('input', { placeholder: '🔍  Search products', value: search });
+  searchBox.addEventListener('input', () => { search = searchBox.value; paintList(); });
+  wrap.append(searchBox, chipsBox, list);
+
+  function paintList() {
+    const cats = ['All', ...new Set(products.map((p) => p.category).filter(Boolean))];
+    chipsBox.replaceChildren(...cats.map((c) => h('button', { class: 'chip' + (c === category ? ' on' : ''), onclick: () => { category = c; paintList(); } }, c)));
+    const q = search.trim().toLowerCase();
+    const shown = products.filter((p) => (category === 'All' || p.category === category) && (!q || p.name.toLowerCase().includes(q)));
+    if (!shown.length) { list.replaceChildren(h('p', { class: 'muted' }, products.length ? 'Nothing matches your search.' : 'No products yet. Check back soon!')); return; }
+    list.replaceChildren(...shown.map((p) => h('div', { class: 'card hot stack' },
+      h('div', { class: 'row' }, h('h3', {}, p.name), p.category ? h('span', { class: 'tag' }, p.category) : null),
+      p.description ? h('div', { class: 'muted' }, p.description) : null,
+      h('div', { class: 'row' },
+        h('div', {}, h('div', { class: 'price' }, rupees(p.price)),
+          p.inStock > 0 ? h('span', { class: 'tag ' + (p.inStock <= 3 ? 'warn' : 'ok') }, p.inStock <= 3 ? 'Only ' + p.inStock + ' left' : 'In stock') : h('span', { class: 'tag bad' }, 'Sold out')),
+        h('button', { class: 'btn primary', disabled: p.inStock < 1 ? '' : false, onclick: () => buyModal(p) }, p.inStock < 1 ? 'Sold out' : 'Buy now')))));
+  }
+  try { products = await api('GET', '/api/products'); paintList(); }
+  catch (e) { list.replaceChildren(h('p', { class: 'err' }, e.message), h('button', { class: 'btn', onclick: draw }, 'Retry')); }
 }
 
-async function adminHomeView() {
-  const tabs = h('div', { class: 'tabs' },
-    h('button', { class: adminTab === 'products' ? 'on' : '', onclick: () => { adminTab = 'products'; render(); } }, 'Products'),
-    h('button', { class: adminTab === 'orders' ? 'on' : '', onclick: () => { adminTab = 'orders'; render(); } }, 'Orders'),
-    logoutButton());
-  const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Loading…'));
-  view.replaceChildren(h('div', { class: 'stack' }, tabs, body));
-  try {
-    if (adminTab === 'products') {
-      const products = await adminApi('GET', '/admin/products');
-      body.replaceChildren(addProductForm(), ...products.map((p) =>
-        h('div', { class: 'card' },
-          h('h3', {}, p.name),
-          h('div', {}, rupees(p.price)),
-          h('small', {}, 'Available ' + p.available + ' • Sold ' + p.sold + ' • Pending ' + p.reserved),
-          h('button', { onclick: () => { adminProductId = p.id; render(); } }, 'Manage keys'))));
+async function buyModal(p) {
+  if (!token) return authModal();
+  try { me = await api('GET', '/api/me'); drawChrome(); } catch (e) { return toast(e.message); }
+  let discount = 0;
+  let appliedCode = '';
+  const coupon = h('input', { placeholder: 'Coupon code (optional)', autocapitalize: 'characters' });
+  const info = h('div', { class: 'stack' });
+  const payBtn = h('button', { class: 'btn primary full' });
+  const ov = modal(h('h3', { style: 'margin:0;font:700 18px var(--head)' }, p.name), p.description ? h('div', { class: 'muted' }, p.description) : null,
+    h('div', { class: 'row' }, h('div', { class: 'muted' }, 'Coupon'), h('div', { style: 'flex:1;display:flex;gap:8px;min-width:200px' }, coupon,
+      h('button', { class: 'btn', onclick: applyCoupon }, 'Apply'))),
+    info, payBtn);
+
+  function paint() {
+    const final = Math.max(0, p.price - discount);
+    const short = final - me.balance;
+    info.replaceChildren(
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Price'), h('span', {}, rupees(p.price))),
+      discount ? h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Coupon ' + appliedCode), h('span', { class: 'tx-in' }, '− ' + rupees(discount))) : null,
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Wallet balance'), h('span', {}, rupees(me.balance))),
+      h('div', { class: 'row' }, h('b', {}, 'You pay'), h('b', { class: 'price', style: 'font-size:22px' }, rupees(final))));
+    if (short > 0) {
+      payBtn.textContent = 'Add ' + rupees(Math.ceil(short * 100) / 100) + ' to wallet';
+      payBtn.onclick = () => { ov.close(); topupModal(Math.max(Math.ceil(short), cfg.minTopup)); };
     } else {
-      const orders = await adminApi('GET', '/admin/orders');
-      body.replaceChildren(...(orders.length ? orders.map((o) =>
-        h('div', { class: 'card' },
-          h('h3', {}, o.product + ' • ' + rupees(o.amount)),
-          h('div', {}, h('span', { class: 'badge' }, o.status)),
-          o.paymentId ? h('small', {}, 'Payment: ' + o.paymentId) : null,
-          o.key ? h('div', { class: 'key' }, o.key) : null,
-          o.status === 'paid_no_stock' ? h('p', { class: 'err' }, 'Customer paid but no key was left. Refund in Razorpay or add stock.') : null,
-          h('small', {}, when(o.createdAt)))) : [h('p', { class: 'muted' }, 'No orders yet.')]));
+      payBtn.textContent = 'Pay ' + rupees(final) + ' from wallet';
+      payBtn.onclick = confirmBuy;
     }
-  } catch (e) { body.replaceChildren(h('p', { class: 'err' }, e.message)); }
+  }
+  async function applyCoupon() {
+    if (!coupon.value.trim()) { discount = 0; appliedCode = ''; return paint(); }
+    try {
+      const r = await api('POST', '/api/coupon/check', { productId: p.id, code: coupon.value });
+      discount = r.discount; appliedCode = coupon.value.trim().toUpperCase(); toast('Coupon applied'); paint();
+    } catch (e) { discount = 0; appliedCode = ''; toast(e.message); paint(); }
+  }
+  async function confirmBuy() {
+    payBtn.disabled = true;
+    try {
+      const r = await api('POST', '/api/buy', { productId: p.id, coupon: appliedCode || undefined });
+      ov.close(); me.balance = r.balance; drawChrome(); showKey(r.product, r.key);
+    } catch (e) {
+      payBtn.disabled = false;
+      if (e.code === 402) { me.balance = e.data.balance; paint(); }
+      toast(e.message);
+    }
+  }
+  paint();
 }
 
-function addProductForm() {
-  const name = h('input', { placeholder: 'Name' });
-  const desc = h('input', { placeholder: 'Description (optional)' });
-  const price = h('input', { placeholder: 'Price in ₹', inputmode: 'decimal' });
-  const btn = h('button', { class: 'primary' }, 'Add product');
+function showKey(product, key) {
+  const ov = modal(h('div', { class: 'unlock' }, '🔓 KEY UNLOCKED'), h('div', { style: 'text-align:center' }, product),
+    h('div', { class: 'key' }, key),
+    h('div', { class: 'small muted', style: 'text-align:center' }, 'Saved in My keys. Never share it with anyone.'),
+    h('button', { class: 'btn primary full', onclick: () => copyText(key) }, 'Copy key'),
+    h('button', { class: 'btn ghost full', onclick: () => { ov.close(); draw(); } }, 'Close'));
+}
+
+// ---------- wallet ----------
+function topupModal(prefill) {
+  const amount = h('input', { type: 'number', inputmode: 'numeric', min: cfg.minTopup, max: cfg.maxTopup, value: prefill || '' , placeholder: 'Amount in ₹' });
+  const go = h('button', { class: 'btn primary full' }, 'Pay with UPI');
+  const quick = [50, 100, 200, 500, 1000].filter((v) => v >= cfg.minTopup && v <= cfg.maxTopup);
+  const ov = modal(h('h3', { style: 'margin:0;font:700 18px var(--head)' }, 'Add money'),
+    cfg.testMode ? h('div', { class: 'test' }, 'Test mode: no real payment will happen.') : null,
+    h('div', {}, h('label', {}, 'Amount (₹' + cfg.minTopup + ' to ₹' + cfg.maxTopup + ')'), amount),
+    h('div', { class: 'chips' }, quick.map((v) => h('button', { class: 'chip', onclick: () => { amount.value = v; } }, '₹' + v))), go);
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    try {
+      const r = await api('POST', '/api/topup', { amount: Number(amount.value) });
+      if (r.testMode) { ov.close(); testPayModal(r); }
+      else if (r.payUrl) { store.set('ks_pay', r.paymentId); window.location.href = r.payUrl; }
+      else throw new Error('Payment link missing. Contact support.');
+    } catch (e) { toast(e.message); go.disabled = false; }
+  });
+}
+
+function testPayModal(r) {
+  const ov = modal(h('h3', { style: 'margin:0;font:700 18px var(--head)' }, 'Test payment'),
+    h('div', { class: 'test' }, 'TEST MODE: pretend to pay ' + rupees(r.amount) + '. No real money moves.'),
+    h('button', { class: 'btn primary full', onclick: async (ev) => {
+      ev.target.disabled = true;
+      try { const s = await api('POST', '/api/payments/' + encodeURIComponent(r.paymentId) + '/simulate'); me.balance = s.balance; ov.close(); toast(rupees(s.amount) + ' added to wallet'); draw(); }
+      catch (e) { toast(e.message); ev.target.disabled = false; }
+    } }, 'Simulate payment'),
+    h('button', { class: 'btn ghost full', onclick: () => ov.close() }, 'Cancel'));
+}
+
+async function walletView() {
+  const wrap = h('div', { class: 'stack' }, h('span', { class: 'spin' }));
+  view.replaceChildren(wrap);
+  try {
+    const w = await api('GET', '/api/wallet');
+    me = Object.assign(me || {}, { balance: w.balance }); drawChrome();
+    wrap.replaceChildren(
+      h('div', { class: 'card wallet stack' }, h('div', { class: 'muted' }, 'WALLET BALANCE'), h('div', { class: 'big' }, rupees(w.balance)),
+        h('button', { class: 'btn primary', onclick: () => topupModal() }, '+ Add money')),
+      h('h2', {}, 'History'),
+      ...(w.transactions.length ? w.transactions.map((t) => h('div', { class: 'card row', style: 'padding:12px 16px' },
+        h('div', {}, h('div', {}, t.note || t.type), h('div', { class: 'small muted' }, when(t.createdAt) + ' • ' + t.type)),
+        h('b', { class: t.amount >= 0 ? 'tx-in' : 'tx-out' }, (t.amount >= 0 ? '+' : '−') + rupees(Math.abs(t.amount))))) : [h('p', { class: 'muted' }, 'No transactions yet.')]));
+  } catch (e) { wrap.replaceChildren(h('p', { class: 'err' }, e.message)); }
+}
+
+// ---------- my keys ----------
+async function keysView() {
+  const wrap = h('div', { class: 'stack' }, h('span', { class: 'spin' }));
+  view.replaceChildren(wrap);
+  try {
+    const orders = await api('GET', '/api/orders');
+    wrap.replaceChildren(h('h2', {}, 'My keys'), ...(orders.length ? orders.map((o) => h('div', { class: 'card stack' },
+      h('div', { class: 'row' }, h('h3', { style: 'margin:0' }, o.product), h('span', { class: 'tag ' + (o.status === 'completed' ? 'ok' : 'warn') }, o.status === 'completed' ? 'Active' : o.status)),
+      o.key ? h('div', { class: 'key' }, o.key) : h('div', { class: 'muted' }, 'This order was refunded to your wallet.'),
+      h('div', { class: 'row' }, h('span', { class: 'small muted' }, when(o.createdAt) + ' • ' + rupees(o.paid)),
+        o.key ? h('button', { class: 'btn', onclick: () => copyText(o.key) }, 'Copy') : null))) :
+      [h('div', { class: 'card', style: 'text-align:center' }, h('p', { class: 'muted' }, 'No keys yet. Grab one from the shop!'), h('button', { class: 'btn primary', onclick: () => { tab = 'shop'; draw(); } }, 'Go to shop'))]));
+  } catch (e) { wrap.replaceChildren(h('p', { class: 'err' }, e.message)); }
+}
+
+// ---------- profile ----------
+async function profileView() {
+  try { me = await api('GET', '/api/me'); drawChrome(); } catch (e) { return view.replaceChildren(h('p', { class: 'err' }, e.message)); }
+  const cur = h('input', { type: 'password', placeholder: 'Current password', autocomplete: 'current-password' });
+  const nxt = h('input', { type: 'password', placeholder: 'New password (min 6)', autocomplete: 'new-password' });
+  const btn = h('button', { class: 'btn full' }, 'Change password');
   btn.addEventListener('click', async () => {
     btn.disabled = true;
-    try {
-      await adminApi('POST', '/admin/products', { name: name.value, description: desc.value, price: Number(price.value) });
-      toast('Product added');
-      render();
-    } catch (e) { toast(e.message); btn.disabled = false; }
+    try { const r = await api('POST', '/api/me/password', { current: cur.value, next: nxt.value }); token = r.token; store.set('ks_token', token); cur.value = ''; nxt.value = ''; toast('Password changed'); }
+    catch (e) { toast(e.message); }
+    btn.disabled = false;
   });
-  return h('div', { class: 'card' }, h('h3', {}, 'New product'), name, desc, price, btn);
+  view.replaceChildren(h('div', { class: 'stack' },
+    h('div', { class: 'card stack', style: 'text-align:center' },
+      h('div', { style: 'font-size:46px' }, '🎮'), h('h3', { style: 'margin:0' }, me.username),
+      h('div', { class: 'row', style: 'justify-content:space-around' },
+        h('div', {}, h('div', { class: 'price', style: 'font-size:20px' }, String(me.orderCount)), h('div', { class: 'small muted' }, 'KEYS BOUGHT')),
+        h('div', {}, h('div', { class: 'price', style: 'font-size:20px' }, rupees(me.totalSpent)), h('div', { class: 'small muted' }, 'TOTAL SPENT')))),
+    cfg.supportLink ? h('a', { class: 'btn primary full', style: 'text-align:center;text-decoration:none;display:block', href: cfg.supportLink, target: '_blank', rel: 'noopener noreferrer' }, '💬 ' + cfg.supportText) : null,
+    h('div', { class: 'card stack' }, h('h3', {}, 'Security'), cur, nxt, btn),
+    h('button', { class: 'btn danger full', onclick: () => logout() }, 'Log out')));
 }
 
-async function adminProductView() {
-  const box = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Loading…'));
-  view.replaceChildren(box);
-  try {
-    const [products, keys] = await Promise.all([
-      adminApi('GET', '/admin/products'),
-      adminApi('GET', '/admin/products/' + encodeURIComponent(adminProductId) + '/keys'),
-    ]);
-    const p = products.find((x) => x.id === adminProductId);
-    if (!p) { adminProductId = null; render(); return; }
-
-    const keysText = h('textarea', { rows: '5', placeholder: 'One key per line' });
-    const saveBtn = h('button', { class: 'primary' }, 'Save keys');
-    saveBtn.addEventListener('click', async () => {
-      saveBtn.disabled = true;
-      try {
-        const r = await adminApi('POST', '/admin/products/' + encodeURIComponent(p.id) + '/keys', { keys: keysText.value });
-        toast('Added ' + r.added + ' key(s)' + (r.skipped ? ', skipped ' + r.skipped : ''));
-        render();
-      } catch (e) { toast(e.message); saveBtn.disabled = false; }
-    });
-
-    const count = h('input', { value: '10', inputmode: 'numeric' });
-    const genBtn = h('button', {}, 'Generate');
-    genBtn.addEventListener('click', async () => {
-      genBtn.disabled = true;
-      try {
-        const r = await adminApi('POST', '/admin/products/' + encodeURIComponent(p.id) + '/generate', { count: Number(count.value) });
-        toast('Generated ' + r.added + ' key(s)');
-        render();
-      } catch (e) { toast(e.message); genBtn.disabled = false; }
-    });
-
-    const delProduct = h('button', { class: 'danger', onclick: async () => {
-      if (!confirm('Delete this product? Unsold keys will be removed. Past orders are kept.')) return;
-      try { await adminApi('DELETE', '/admin/products/' + encodeURIComponent(p.id)); adminProductId = null; toast('Product deleted'); render(); }
-      catch (e) { toast(e.message); }
-    } }, 'Delete this product');
-
-    box.replaceChildren(
-      h('div', { class: 'row' }, h('button', { onclick: () => { adminProductId = null; render(); } }, '← Back'), logoutButton()),
-      h('h3', {}, p.name + ' • ' + rupees(p.price)),
-      h('small', {}, 'Available ' + p.available + ' • Sold ' + p.sold + ' • Pending ' + p.reserved),
-      h('div', { class: 'card' }, h('h3', {}, 'Add your own keys'), keysText, saveBtn),
-      h('div', { class: 'card' }, h('h3', {}, 'Or generate random keys'), h('label', {}, 'How many (1 to 500)'), count, genBtn),
-      h('h3', {}, 'Keys'),
-      ...(keys.length ? keys.map((k) =>
-        h('div', { class: 'card' },
-          h('div', { class: 'key' }, k.value),
-          h('div', { class: 'row' }, h('span', { class: 'badge' }, k.status),
-            k.status === 'available' ? h('button', { class: 'danger', onclick: async () => {
-              try { await adminApi('DELETE', '/admin/keys/' + encodeURIComponent(k.id)); render(); } catch (e) { toast(e.message); }
-            } }, 'Delete') : null))) : [h('p', { class: 'muted' }, 'No keys yet.')]),
-      delProduct);
-  } catch (e) { box.replaceChildren(h('p', { class: 'err' }, e.message)); }
-}
-
-// ---------- router ----------
-const currentView = () => (location.hash.replace('#', '') || 'store');
-
-function render() {
-  const v = currentView();
-  for (const n of ['store', 'keys', 'admin']) document.getElementById('n-' + n).classList.toggle('on', n === v);
-  if (v === 'keys') return keysView();
-  if (v === 'admin') {
-    if (!adminToken()) return adminLoginView();
-    return adminProductId ? adminProductView() : adminHomeView();
+// ---------- returning from the payment app ----------
+async function handlePaymentReturn() {
+  const qs = new URLSearchParams(location.search);
+  const pid = qs.get('pay') || store.get('ks_pay');
+  if (!pid || !token) return;
+  if (qs.get('pay')) history.replaceState(null, '', location.pathname);
+  const box = h('div', { class: 'stack', style: 'text-align:center' }, h('span', { class: 'spin' }), h('div', {}, 'Checking your payment…'));
+  const ov = modal(box);
+  for (let i = 0; i < 8; i++) {
+    try {
+      const r = await api('GET', '/api/payments/' + encodeURIComponent(pid));
+      if (r.status === 'paid') {
+        store.del('ks_pay'); me = Object.assign(me || {}, { balance: r.balance });
+        box.replaceChildren(h('div', { class: 'unlock' }, '✅ PAYMENT DONE'), h('div', {}, rupees(r.amount) + ' added to your wallet.'),
+          h('button', { class: 'btn primary full', onclick: () => { ov.close(); tab = 'shop'; draw(); } }, 'Start shopping'));
+        return;
+      }
+      if (r.status === 'failed') { store.del('ks_pay'); box.replaceChildren(h('div', { class: 'err' }, 'The payment failed. You were not charged.'), h('button', { class: 'btn full', onclick: () => ov.close() }, 'Close')); return; }
+    } catch (e) { if (e.code === 404) { store.del('ks_pay'); ov.close(); return; } }
+    await new Promise((r) => setTimeout(r, 3000));
   }
-  return storeView();
+  box.replaceChildren(h('div', {}, 'We have not received the payment yet. If money was deducted it will be added automatically within a few minutes.'),
+    h('button', { class: 'btn primary full', onclick: () => { ov.close(); handlePaymentReturn(); } }, 'Check again'),
+    h('button', { class: 'btn ghost full', onclick: () => ov.close() }, 'Close'));
 }
-window.addEventListener('hashchange', render);
-render();
+
+// ---------- start ----------
+(async () => {
+  try { cfg = Object.assign(cfg, await api('GET', '/api/config')); } catch (e) {}
+  if (token) { try { me = await api('GET', '/api/me'); } catch (e) {} }
+  await draw();
+  handlePaymentReturn();
+})();
 })();
 </script>
 </body>
