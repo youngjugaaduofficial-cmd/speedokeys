@@ -428,9 +428,28 @@ async function handlePaymentReturn() {
   const qs = new URLSearchParams(location.search);
   const pid = qs.get('pay') || store.get('ks_pay');
   if (!pid || !token) return;
+
+  const urlStatus = (qs.get('status') || qs.get('txStatus') || qs.get('state') || '').toLowerCase();
+  if (['failed', 'cancelled', 'canceled', 'failure', 'error'].includes(urlStatus)) {
+    history.replaceState(null, '', location.pathname);
+    store.del('ks_pay');
+    try { await api('POST', '/api/payments/' + encodeURIComponent(pid) + '/fail'); } catch(e){}
+    toast('Payment cancelled.');
+    draw();
+    return;
+  }
+
   if (qs.get('pay')) history.replaceState(null, '', location.pathname);
-  const box = h('div', { class: 'stack', style: 'text-align:center' }, h('span', { class: 'spin' }), h('div', {}, 'Checking your payment…'));
+  const box = h('div', { class: 'stack', style: 'text-align:center' }, 
+    h('span', { class: 'spin' }), 
+    h('div', {}, 'Checking your payment…'),
+    h('button', { class: 'btn danger full', style: 'margin-top:8px', onclick: async () => {
+      try { await api('POST', '/api/payments/' + encodeURIComponent(pid) + '/fail'); } catch(e){}
+      store.del('ks_pay'); ov.close(); toast('Payment cancelled'); draw();
+    }}, 'Cancel / Didn\'t pay')
+  );
   const ov = modal(box);
+
   for (let i = 0; i < 8; i++) {
     try {
       const r = await api('GET', '/api/payments/' + encodeURIComponent(pid));
@@ -440,15 +459,26 @@ async function handlePaymentReturn() {
           h('button', { class: 'btn primary full', onclick: () => { ov.close(); tab = 'shop'; draw(); } }, 'Start shopping'));
         return;
       }
-      if (r.status === 'failed') { store.del('ks_pay'); box.replaceChildren(h('div', { class: 'err' }, 'The payment failed. You were not charged.'), h('button', { class: 'btn full', onclick: () => ov.close() }, 'Close')); return; }
+      if (r.status === 'failed') { 
+        store.del('ks_pay'); 
+        ov.close(); 
+        toast('Payment failed or cancelled.'); 
+        draw(); 
+        return; 
+      }
     } catch (e) { if (e.code === 404) { store.del('ks_pay'); ov.close(); return; } }
     await new Promise((r) => setTimeout(r, 3000));
   }
+  
   box.replaceChildren(h('div', {}, 'We have not received the payment yet. If money was deducted it will be added automatically within a few minutes.'),
     h('button', { class: 'btn primary full', onclick: () => { ov.close(); handlePaymentReturn(); } }, 'Check again'),
+    h('button', { class: 'btn ghost full', onclick: async () => {
+      try { await api('POST', '/api/payments/' + encodeURIComponent(pid) + '/fail'); } catch(e){}
+      store.del('ks_pay'); ov.close(); draw();
+    }}, 'Cancel / Didn\'t pay'),
     h('button', { class: 'btn ghost full', onclick: () => ov.close() }, 'Close'));
 }
-
+  
 // ---------- start ----------
 (async () => {
   try { cfg = Object.assign(cfg, await api('GET', '/api/config')); } catch (e) {}
