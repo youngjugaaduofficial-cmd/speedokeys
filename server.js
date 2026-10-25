@@ -544,8 +544,8 @@ route('POST', '/api/topup', { auth: 'user' }, async ({ user, body, req }) => {
   if (!Number.isFinite(amountPaise) || amountPaise < db.settings.minTopupPaise || amountPaise > db.settings.maxTopupPaise) {
     fail(400, `Amount must be between ₹${rupees(db.settings.minTopupPaise)} and ₹${rupees(db.settings.maxTopupPaise)}`);
   }
-  const pay = {
-    id: uid(),
+    const pay = {
+    id: 'PAY' + Date.now() + Math.floor(Math.random() * 1000), // Clean alphanumeric ID without hyphens
     userId: user.id,
     username: user.username,
     amountPaise,
@@ -556,6 +556,7 @@ route('POST', '/api/topup', { auth: 'user' }, async ({ user, body, req }) => {
     createdAt: now(),
     paidAt: null,
   };
+  
   const baseUrl = PUBLIC_URL || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
   try {
     const g = await gateway.create(pay, { returnUrl: `${baseUrl}/?pay=${pay.id}` });
