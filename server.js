@@ -577,11 +577,14 @@ route('GET', '/api/payments/:id', { auth: 'user' }, async ({ user, params }) => 
   if (pay.status === 'pending' && !MOCK_MODE) {
     try {
       const r = await gateway.check(pay);
-      if (r.status === 'paid' && r.amountPaise >= pay.amountPaise) settlePayment(pay, 'Wallet top-up');
-      else if (r.status === 'failed') {
-        pay.status = 'failed';
-        save();
-      }
+      if (r.status === 'paid' && r.amountPaise >= pay.amountPaise) {
+  settlePayment(pay, 'Wallet top-up');
+} 
+else if (r.status === 'failed' || r.status === 'cancelled' || r.status === 'expired') {
+  pay.status = 'failed';
+  save();
+}
+      
     } catch (e) {
       console.error('gateway check failed:', e.message);
     }
