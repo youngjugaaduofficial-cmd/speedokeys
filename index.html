@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#3F51B5">
+<title>Key Store</title>
+<style>
+  :root { --bg:#f4f5fa; --card:#fff; --ink:#1b1d2a; --muted:#6a6f85; --brand:#3F51B5; --err:#c62828; --ok:#2e7d32; --line:#e3e5ef; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12131a; --card:#1c1e29; --ink:#eceef7; --muted:#9aa0b8; --brand:#8c9eff; --err:#ff8a80; --ok:#81c784; --line:#2c2f3e; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--brand); color:#fff; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  header h1 { font-size:18px; margin:0; }
+  nav { display:flex; gap:4px; }
+  nav a { color:#fff; text-decoration:none; padding:6px 10px; border-radius:8px; font-size:14px; }
+  nav a.on { background:rgba(255,255,255,.22); }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  .stack { display:flex; flex-direction:column; gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:8px; }
+  .card h3 { margin:0; font-size:17px; }
+  .card p { margin:0; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .price { font-size:22px; font-weight:700; }
+  .muted, small { color:var(--muted); }
+  .err { color:var(--err); }
+  .key { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:18px; word-break:break-all; user-select:all; background:var(--bg); padding:10px; border-radius:8px; }
+  button { font:inherit; padding:10px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+  button.danger { color:var(--err); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  input, textarea { font:inherit; width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  label { font-size:13px; color:var(--muted); display:block; margin-bottom:4px; }
+  .tabs { display:flex; gap:8px; }
+  .tabs button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#222; color:#fff; padding:10px 16px; border-radius:10px; max-width:90%; display:none; z-index:20; text-align:center; }
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px; z-index:15; }
+  .modal { background:var(--card); border-radius:16px; padding:20px; width:100%; max-width:420px; display:flex; flex-direction:column; gap:12px; }
+  .badge { font-size:12px; padding:2px 8px; border-radius:999px; background:var(--bg); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Key Store</h1>
+  <nav>
+    <a href="#store" id="n-store">Store</a>
+    <a href="#keys" id="n-keys">My keys</a>
+    <a href="#admin" id="n-admin">Admin</a>
+  </nav>
+</header>
+<main id="view"></main>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+
+// ---------- helpers ----------
+const view = document.getElementById('view');
+
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    e.append(kid); // strings become text nodes, never HTML
+  }
+  return e;
+}
+const rupees = (v) => '₹' + (Number.isInteger(v) ? v : v.toFixed(2));
+const when = (ms) => new Date(ms).toLocaleString();
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.style.display = 'none'), 3500);
+}
+
+const local = {
+  list(name) { try { return JSON.parse(localStorage.getItem(name) || '[]'); } catch (e) { return []; } },
+  save(name, v) { try { localStorage.setItem(name, JSON.stringify(v)); } catch (e) {} },
+  get deviceId() {
+    let id = null;
+    try { id = localStorage.getItem('deviceId'); } catch (e) {}
+    if (!id) {
+      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+        : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+      try { localStorage.setItem('deviceId', id); } catch (e) {}
+    }
+    return id;
+  },
+};
+
+async function api(method, path, body, token) {
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    throw new Error('Cannot reach the server. Check your internet.');
+  }
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const err = new Error(data.error || 'Error ' + res.status);
+    err.code = res.status;
+    throw err;
+  }
+  return data;
+}
+
+const adminToken = () => { try { return sessionStorage.getItem('adminToken'); } catch (e) { return null; } };
+async function adminApi(method, path, body) {
+  try {
+    return await api(method, path, body, adminToken());
+  } catch (e) {
+    if (e.code === 401) {
+      try { sessionStorage.removeItem('adminToken'); } catch (_) {}
+      toast('Session expired. Please log in again.');
+      if (location.hash !== '#admin') location.hash = '#admin'; else render();
+    }
+    throw e;
+  }
+}
+
+function copyText(text) {
+  const done = () => toast('Copied');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done, () => toast('Press and hold the key to copy'));
+  } else {
+    const ta = h('textarea', { style: 'position:fixed;opacity:0' });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { toast('Press and hold the key to copy'); }
+    ta.remove();
+  }
+}
+
+function modal(...content) {
+  const ov = h('div', { class: 'overlay' }, h('div', { class: 'modal' }, ...content));
+  ov.close = () => ov.remove();
+  document.body.append(ov);
+  return ov;
+}
+
+// ---------- customer side ----------
+function showKey(purchase) {
+  const ov = modal(
+    h('h3', {}, 'Payment successful'),
+    h('div', {}, purchase.product),
+    h('div', { class: 'key' }, purchase.key),
+    h('small', { class: 'muted' }, 'This key is also saved under My keys on this browser.'),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: () => copyText(purchase.key) }, 'Copy key'),
+      h('button', { onclick: () => ov.close() }, 'Close')),
+  );
+}
+
+function handleResult(product, r) {
+  if (r.key) {
+    const p = { orderId: r.orderId, product, key: r.key, time: Date.now() };
+    const all = local.list('purchases');
+    if (!all.some((x) => x.orderId === p.orderId)) { all.push(p); local.save('purchases', all); }
+    local.save('pending', local.list('pending').filter((x) => x.orderId !== r.orderId));
+    showKey(p);
+    if (currentView() === 'store') render();
+  } else if (r.status === 'paid_no_stock') {
+    local.save('pending', local.list('pending').filter((x) => x.orderId !== r.orderId));
+    toast('Payment received but the item sold out. Contact support for a refund.');
+  } else {
+    toast('Payment is still processing. Check My keys in a minute.');
+  }
+}
+
+async function complete(order, paymentId, signature) {
+  try {
+    const r = await api('POST', '/orders/verify', {
+      orderId: order.orderId, deviceId: local.deviceId,
+      razorpay_payment_id: paymentId, razorpay_signature: signature,
+    });
+    handleResult(order.productName, r);
+  } catch (e) {
+    toast('Payment received but not confirmed yet (' + e.message + '). Check My keys in a minute.');
+  }
+}
+
+let rzpPromise;
+function loadRazorpay() {
+  if (window.Razorpay) return Promise.resolve();
+  if (!rzpPromise) {
+    rzpPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      s.onload = resolve;
+      s.onerror = () => { rzpPromise = null; reject(new Error('Could not load the payment screen')); };
+      document.head.append(s);
+    });
+  }
+  return rzpPromise;
+}
+
+let buying = false;
+async function buy(p) {
+  if (buying) return;
+  buying = true;
+  try {
+    const o = await api('POST', '/orders', { productId: p.id, deviceId: local.deviceId });
+    const pend = local.list('pending');
+    pend.push({ orderId: o.orderId, product: p.name, time: Date.now() });
+    local.save('pending', pend);
+    if (o.mock) {
+      if (confirm('TEST MODE (no real money).\nPretend to pay ' + rupees(o.amountPaise / 100) + ' for ' + o.productName + '?')) {
+        await complete(o, 'pay_mock_' + Date.now(), 'mock');
+      } else {
+        toast('Cancelled');
+      }
+    } else {
+      await loadRazorpay();
+      const rzp = new window.Razorpay({
+        key: o.razorpayKeyId,
+        amount: o.amountPaise,
+        currency: 'INR',
+        name: 'Key Store',
+        description: o.productName,
+        order_id: o.razorpayOrderId,
+        handler: (r) => complete(o, r.razorpay_payment_id, r.razorpay_signature),
+        modal: { ondismiss: () => toast('Payment not completed') },
+        theme: { color: '#3F51B5' },
+      });
+      rzp.on('payment.failed', () => toast('Payment failed. Please try again.'));
+      rzp.open();
+    }
+  } catch (e) {
+    toast(e.message);
+    if (currentView() === 'store') render();
+  } finally {
+    buying = false;
+  }
+}
+
+// Fetch keys for orders that were paid while the page was closed
+async function recoverPending() {
+  for (const p of local.list('pending')) {
+    try {
+      const r = await api('GET', '/orders/' + encodeURIComponent(p.orderId) + '?deviceId=' + encodeURIComponent(local.deviceId));
+      if (r.key || r.status === 'paid_no_stock') handleResult(p.product, r);
+      else if (r.status === 'expired' && Date.now() - p.time > 6 * 3600 * 1000) {
+        local.save('pending', local.list('pending').filter((x) => x.orderId !== p.orderId));
+      }
+    } catch (e) {
+      if (e.code === 404) local.save('pending', local.list('pending').filter((x) => x.orderId !== p.orderId));
+    }
+  }
+}
+
+async function storeView() {
+  const box = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Loading…'));
+  view.replaceChildren(box);
+  let products;
+  try {
+    products = await api('GET', '/products');
+  } catch (e) {
+    box.replaceChildren(h('p', { class: 'err' }, e.message), h('button', { onclick: render }, 'Retry'));
+    return;
+  }
+  if (!products.length) { box.replaceChildren(h('p', { class: 'muted' }, 'No products yet.')); return; }
+  box.replaceChildren(...products.map((p) =>
+    h('div', { class: 'card' },
+      h('h3', {}, p.name),
+      p.description ? h('p', {}, p.description) : null,
+      h('div', { class: 'row' },
+        h('div', {}, h('div', { class: 'price' }, rupees(p.price)), h('small', {}, p.inStock > 0 ? 'In stock' : 'Out of stock')),
+        h('button', { class: 'primary', disabled: p.inStock < 1 ? '' : false, onclick: () => buy(p) }, 'Buy with UPI')))));
+  recoverPending();
+}
+
+function keysView() {
+  const list = local.list('purchases').sort((a, b) => b.time - a.time);
+  if (!list.length) { view.replaceChildren(h('p', { class: 'muted' }, 'You have not bought any keys yet.')); recoverPending(); return; }
+  view.replaceChildren(h('div', { class: 'stack' }, list.map((p) =>
+    h('div', { class: 'card' },
+      h('h3', {}, p.product),
+      h('div', { class: 'key' }, p.key),
+      h('div', { class: 'row' }, h('small', {}, when(p.time)), h('button', { onclick: () => copyText(p.key) }, 'Copy'))))));
+  recoverPending();
+}
+
+// ---------- admin side ----------
+let adminTab = 'products';
+let adminProductId = null;
+
+function adminLoginView() {
+  const pw = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
+  const btn = h('button', { class: 'primary' }, 'Log in');
+  const go = async () => {
+    btn.disabled = true;
+    try {
+      const r = await api('POST', '/admin/login', { password: pw.value });
+      try { sessionStorage.setItem('adminToken', r.token); } catch (e) {}
+      render();
+    } catch (e) { toast(e.message); btn.disabled = false; }
+  };
+  btn.addEventListener('click', go);
+  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  view.replaceChildren(h('div', { class: 'stack' }, h('h3', {}, 'Admin login'), pw, btn));
+}
+
+function logoutButton() {
+  return h('button', { onclick: () => { try { sessionStorage.removeItem('adminToken'); } catch (e) {} adminProductId = null; render(); } }, 'Log out');
+}
+
+async function adminHomeView() {
+  const tabs = h('div', { class: 'tabs' },
+    h('button', { class: adminTab === 'products' ? 'on' : '', onclick: () => { adminTab = 'products'; render(); } }, 'Products'),
+    h('button', { class: adminTab === 'orders' ? 'on' : '', onclick: () => { adminTab = 'orders'; render(); } }, 'Orders'),
+    logoutButton());
+  const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Loading…'));
+  view.replaceChildren(h('div', { class: 'stack' }, tabs, body));
+  try {
+    if (adminTab === 'products') {
+      const products = await adminApi('GET', '/admin/products');
+      body.replaceChildren(addProductForm(), ...products.map((p) =>
+        h('div', { class: 'card' },
+          h('h3', {}, p.name),
+          h('div', {}, rupees(p.price)),
+          h('small', {}, 'Available ' + p.available + ' • Sold ' + p.sold + ' • Pending ' + p.reserved),
+          h('button', { onclick: () => { adminProductId = p.id; render(); } }, 'Manage keys'))));
+    } else {
+      const orders = await adminApi('GET', '/admin/orders');
+      body.replaceChildren(...(orders.length ? orders.map((o) =>
+        h('div', { class: 'card' },
+          h('h3', {}, o.product + ' • ' + rupees(o.amount)),
+          h('div', {}, h('span', { class: 'badge' }, o.status)),
+          o.paymentId ? h('small', {}, 'Payment: ' + o.paymentId) : null,
+          o.key ? h('div', { class: 'key' }, o.key) : null,
+          o.status === 'paid_no_stock' ? h('p', { class: 'err' }, 'Customer paid but no key was left. Refund in Razorpay or add stock.') : null,
+          h('small', {}, when(o.createdAt)))) : [h('p', { class: 'muted' }, 'No orders yet.')]));
+    }
+  } catch (e) { body.replaceChildren(h('p', { class: 'err' }, e.message)); }
+}
+
+function addProductForm() {
+  const name = h('input', { placeholder: 'Name' });
+  const desc = h('input', { placeholder: 'Description (optional)' });
+  const price = h('input', { placeholder: 'Price in ₹', inputmode: 'decimal' });
+  const btn = h('button', { class: 'primary' }, 'Add product');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await adminApi('POST', '/admin/products', { name: name.value, description: desc.value, price: Number(price.value) });
+      toast('Product added');
+      render();
+    } catch (e) { toast(e.message); btn.disabled = false; }
+  });
+  return h('div', { class: 'card' }, h('h3', {}, 'New product'), name, desc, price, btn);
+}
+
+async function adminProductView() {
+  const box = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Loading…'));
+  view.replaceChildren(box);
+  try {
+    const [products, keys] = await Promise.all([
+      adminApi('GET', '/admin/products'),
+      adminApi('GET', '/admin/products/' + encodeURIComponent(adminProductId) + '/keys'),
+    ]);
+    const p = products.find((x) => x.id === adminProductId);
+    if (!p) { adminProductId = null; render(); return; }
+
+    const keysText = h('textarea', { rows: '5', placeholder: 'One key per line' });
+    const saveBtn = h('button', { class: 'primary' }, 'Save keys');
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      try {
+        const r = await adminApi('POST', '/admin/products/' + encodeURIComponent(p.id) + '/keys', { keys: keysText.value });
+        toast('Added ' + r.added + ' key(s)' + (r.skipped ? ', skipped ' + r.skipped : ''));
+        render();
+      } catch (e) { toast(e.message); saveBtn.disabled = false; }
+    });
+
+    const count = h('input', { value: '10', inputmode: 'numeric' });
+    const genBtn = h('button', {}, 'Generate');
+    genBtn.addEventListener('click', async () => {
+      genBtn.disabled = true;
+      try {
+        const r = await adminApi('POST', '/admin/products/' + encodeURIComponent(p.id) + '/generate', { count: Number(count.value) });
+        toast('Generated ' + r.added + ' key(s)');
+        render();
+      } catch (e) { toast(e.message); genBtn.disabled = false; }
+    });
+
+    const delProduct = h('button', { class: 'danger', onclick: async () => {
+      if (!confirm('Delete this product? Unsold keys will be removed. Past orders are kept.')) return;
+      try { await adminApi('DELETE', '/admin/products/' + encodeURIComponent(p.id)); adminProductId = null; toast('Product deleted'); render(); }
+      catch (e) { toast(e.message); }
+    } }, 'Delete this product');
+
+    box.replaceChildren(
+      h('div', { class: 'row' }, h('button', { onclick: () => { adminProductId = null; render(); } }, '← Back'), logoutButton()),
+      h('h3', {}, p.name + ' • ' + rupees(p.price)),
+      h('small', {}, 'Available ' + p.available + ' • Sold ' + p.sold + ' • Pending ' + p.reserved),
+      h('div', { class: 'card' }, h('h3', {}, 'Add your own keys'), keysText, saveBtn),
+      h('div', { class: 'card' }, h('h3', {}, 'Or generate random keys'), h('label', {}, 'How many (1 to 500)'), count, genBtn),
+      h('h3', {}, 'Keys'),
+      ...(keys.length ? keys.map((k) =>
+        h('div', { class: 'card' },
+          h('div', { class: 'key' }, k.value),
+          h('div', { class: 'row' }, h('span', { class: 'badge' }, k.status),
+            k.status === 'available' ? h('button', { class: 'danger', onclick: async () => {
+              try { await adminApi('DELETE', '/admin/keys/' + encodeURIComponent(k.id)); render(); } catch (e) { toast(e.message); }
+            } }, 'Delete') : null))) : [h('p', { class: 'muted' }, 'No keys yet.')]),
+      delProduct);
+  } catch (e) { box.replaceChildren(h('p', { class: 'err' }, e.message)); }
+}
+
+// ---------- router ----------
+const currentView = () => (location.hash.replace('#', '') || 'store');
+
+function render() {
+  const v = currentView();
+  for (const n of ['store', 'keys', 'admin']) document.getElementById('n-' + n).classList.toggle('on', n === v);
+  if (v === 'keys') return keysView();
+  if (v === 'admin') {
+    if (!adminToken()) return adminLoginView();
+    return adminProductId ? adminProductView() : adminHomeView();
+  }
+  return storeView();
+}
+window.addEventListener('hashchange', render);
+render();
+})();
+</script>
+</body>
+</html>
