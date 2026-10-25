@@ -601,6 +601,16 @@ route('GET', '/api/payments/:id', { auth: 'user' }, async ({ user, params }) => 
   }
   return { id: pay.id, status: pay.status, amount: rupees(pay.amountPaise), balance: rupees(user.balancePaise) };
 });
+route('POST', '/api/payments/:id/fail', { auth: 'user' }, async ({ user, params }) => {
+  const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
+  if (!pay) fail(404, 'Payment not found');
+  if (pay.status === 'pending') {
+    pay.status = 'failed';
+    save();
+  }
+  return { success: true };
+});
+
 
 route('POST', '/api/payments/:id/simulate', { auth: 'user' }, ({ user, params }) => {
   if (!MOCK_MODE) fail(404, 'Not found');
