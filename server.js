@@ -987,25 +987,3 @@ if (require.main === module) {
   });
 }
 module.exports = { server, start, _db: () => db };
-app.post('/api/webhook', async (req, res) => {
-  try {
-    const data = req.body;
-    const status = String(data.status || '').toLowerCase();
-    const orderId = data.order_id || data.orderId;
-    
-    const pay = db.payments.find(p => p.id === orderId);
-    if (!pay) return res.status(404).json({ error: 'Order not found' });
-    if (pay.status !== 'pending') return res.status(200).json({ received: true });
-
-    if (status === 'success' || status === 'completed' || status === 'paid') {
-      settlePayment(pay, 'Wallet top-up');
-    } else {
-      pay.status = 'failed';
-      save();
-    }
-    return res.status(200).json({ success: true });
-  } catch (e) {
-    console.error('Webhook error:', e);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
