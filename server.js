@@ -12,6 +12,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const TRUST_PROXY = process.env.TRUST_PROXY ? process.env.TRUST_PROXY === '1' : !!process.env.RENDER;
+const ZAP_KEY = process.env.ZAP_KEY || process.env.ZAPUPI_API_KEY || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
 // Durable storage (recommended on free hosting): Upstash Redis over plain HTTPS
@@ -23,8 +24,8 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
   console.error('ADMIN_PASSWORD and JWT_SECRET must be set (see .env.example).');
   process.exit(1);
 }
-if (process.env.GATEWAY === 'zapupi' && !process.env.ZAP_KEY) {
-  console.error('ZAP_KEY must be set when GATEWAY=zapupi.');
+if (process.env.GATEWAY === 'zapupi' && !ZAP_KEY) {
+  console.error('ZAPUPI_API_KEY (or ZAP_KEY) must be set when GATEWAY=zapupi.');
   process.exit(1);
 }
 if (process.env.GATEWAY === 'zapupi' && (process.env.ZAP_WEBHOOK_SECRET || '').length < 16) {
@@ -217,7 +218,7 @@ const gateways = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          zap_key: process.env.ZAP_KEY,
+          zap_key: ZAP_KEY,
           order_id: payment.id,
           amount: payment.amountPaise / 100,
           success_url: ctx.returnUrl,
