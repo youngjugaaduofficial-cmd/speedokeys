@@ -35,6 +35,8 @@ const emptyDb = () => ({
   settings: {
     siteName: 'Key Store',
     announcement: '',
+    maintenanceMode: false,
+    maintenanceMessage: 'We are under maintenance. Please check back soon.',
     supportLink: '',
     supportText: 'Contact support',
     minTopupPaise: 1000,
@@ -42,11 +44,13 @@ const emptyDb = () => ({
   },
   users: [],
   products: [],
+  categories: [],
   keys: [],
   orders: [],
   payments: [],
   txns: [],
   coupons: [],
+  referrals: [],
 });
 let db = emptyDb();
 
@@ -68,8 +72,18 @@ async function loadDb() {
   else if (fs.existsSync(DATA_FILE)) raw = fs.readFileSync(DATA_FILE, 'utf8');
   if (raw) {
     const parsed = JSON.parse(raw);
-    db = Object.assign(emptyDb(), parsed, { settings: Object.assign(emptyDb().settings, parsed.settings || {}) });
+    db = Object.assign(emptyDb(), parsed, { settings: Object.assign(emptyDb().settings, parsed.settings || {}), referrals: Array.isArray(parsed.referrals) ? parsed.referrals : [] });
   }
+  // Backfill stable referral codes for accounts created before this feature.
+  const usedCodes = new Set(db.users.map((u) => u.referralCode).filter(Boolean));
+  let referralCodesAdded = false;
+  for (const u of db.users) {
+    if (!u.referralCode) {
+      let code; do { code = 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase(); } while (usedCodes.has(code));
+      u.referralCode = code; usedCodes.add(code); referralCodesAdded = true;
+    }
+  }
+  if (referralCodesAdded) save();
 }
 
 let writeChain = Promise.resolve();
@@ -165,15 +179,19 @@ function addTxn(user, type, amountPaise, note) {
 
 function csvCell(v) {
   let s = String(v == null ? '' : v);
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stop spreadsheet formula injection
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
 // ======================================================================
 // Payment gateway adapters
 // ======================================================================
+// A gateway needs two functions:
+//   create(payment, ctx) -> { ref, payUrl }          start a payment
+//   check(payment)       -> { status, amountPaise }  status: 'paid' | 'pending' | 'failed'
 const GATEWAY = process.env.GATEWAY || 'mock';
 const gateways = {
+  // Test mode: nothing is charged. The app shows a "simulate payment" button.
   mock: {
     async create(payment) {
       return { ref: 'mock_' + payment.id, payUrl: null };
@@ -182,49 +200,16 @@ const gateways = {
       return { status: 'pending' };
     },
   },
+  // ZapUPI goes here once its API details are confirmed.
   zapupi: {
-    async create(payment, ctx) {
-      const res = await fetch('https://pay.zapupi.com/api/create-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          zap_key: process.env.ZAPUPI_API_KEY,
-          order_id: payment.id,
-          amount: payment.amountPaise / 100,
-          success_url: ctx.returnUrl,
-          failed_url: ctx.returnUrl
-        })
-      });
-      const data = await res.json();
-      if (!res.ok || data.status === 'error' || !data.payment_url) {
-        throw new Error(data.message || 'ZapUPI connection failed');
-      }
-      return { ref: payment.id, payUrl: data.payment_url };
+    async create() {
+      throw new Error('ZapUPI is not connected yet');
     },
-    async check(payment) {
-      const res = await fetch('https://pay.zapupi.com/api/order-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          zap_key: process.env.ZAPUPI_API_KEY,
-          order_id: payment.id
-        })
-      });
-      const data = await res.json();
-      let status = 'pending';
-      const st = String(data.status || '').toLowerCase();
-      if (st === 'success' || st === 'completed') status = 'paid';
-      else if (st === 'failed' || st === 'error') status = 'failed';
-      
-      return { status, amountPaise: data.amount ? Math.round(Number(data.amount) * 100) : payment.amountPaise };
+    async check() {
+      throw new Error('ZapUPI is not connected yet');
     },
   },
 };
-
 if (!gateways[GATEWAY]) {
   console.error('Unknown GATEWAY: ' + GATEWAY);
   process.exit(1);
@@ -232,6 +217,7 @@ if (!gateways[GATEWAY]) {
 const MOCK_MODE = GATEWAY === 'mock';
 const gateway = gateways[GATEWAY];
 
+// Credits the wallet once. Safe to call many times for the same payment.
 function settlePayment(pay, note) {
   if (pay.status === 'paid') return pay;
   const user = db.users.find((u) => u.id === pay.userId);
@@ -376,7 +362,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ======================================================================
-// Routes
+// Public routes
 // ======================================================================
 route('GET', '/api/health', () => ({ ok: true, gateway: GATEWAY }));
 
@@ -398,11 +384,13 @@ route('GET', '/api/products', () =>
       name: p.name,
       description: p.description || '',
       category: p.category || '',
+      websiteUrl: p.websiteUrl || '',
       price: rupees(p.pricePaise),
-      inStock: stockOf(p.id),
+      inStock: db.settings.maintenanceMode ? 0 : stockOf(p.id),
     }))
 );
 
+// ----- accounts -----
 const USERNAME_RX = /^[A-Za-z0-9_]{3,20}$/;
 
 route('POST', '/api/signup', async ({ body, ip }) => {
@@ -412,17 +400,20 @@ route('POST', '/api/signup', async ({ body, ip }) => {
   if (!USERNAME_RX.test(username)) fail(400, 'Username must be 3 to 20 letters, numbers or _');
   if (password.length < 6 || password.length > 100) fail(400, 'Password must be at least 6 characters');
   if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'That username is taken');
+  const rawCode = String(body.referralCode || '').trim().toUpperCase();
+  let referrer = null;
+  if (rawCode) {
+    referrer = db.users.find((u) => u.referralCode && u.referralCode.toUpperCase() === rawCode);
+    if (!referrer) fail(400, 'Referral code is invalid');
+  }
   const user = {
-    id: uid(),
-    username,
-    passHash: await hashPassword(password),
-    balancePaise: 0,
-    banned: false,
-    tv: 1,
-    createdAt: now(),
-    lastLogin: now(),
+    id: uid(), username, passHash: await hashPassword(password), balancePaise: 0,
+    banned: false, tv: 1, createdAt: now(), lastLogin: now(),
+    referralCode: 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase(),
   };
+  while (db.users.some((u) => u.referralCode === user.referralCode)) user.referralCode = 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase();
   db.users.push(user);
+  if (referrer && referrer.id !== user.id) db.referrals.push({ id: uid(), referrerId: referrer.id, referredUserId: user.id, code: rawCode, status: 'pending', rewardPaise: 1000, createdAt: now(), rewardedAt: null });
   save();
   return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) };
 });
@@ -446,6 +437,20 @@ route('GET', '/api/me', { auth: 'user' }, ({ user }) => {
     ...publicUser(user),
     orderCount: orders.length,
     totalSpent: rupees(orders.reduce((s, o) => s + o.pricePaise, 0)),
+    referralCode: user.referralCode || null,
+  };
+});
+
+route('GET', '/api/referrals', { auth: 'user' }, ({ user }) => {
+  const mine = db.referrals.filter((r) => r.referrerId === user.id);
+  return {
+    code: user.referralCode,
+    reward: 10,
+    total: mine.length,
+    rewarded: mine.filter((r) => r.status === 'rewarded').length,
+    pending: mine.filter((r) => r.status === 'pending').length,
+    earned: rupees(mine.filter((r) => r.status === 'rewarded').reduce((sum, r) => sum + r.rewardPaise, 0)),
+    referrals: mine.slice().sort((a, b) => b.createdAt - a.createdAt).map((r) => ({ status: r.status, createdAt: r.createdAt, rewardedAt: r.rewardedAt })),
   };
 });
 
@@ -455,11 +460,12 @@ route('POST', '/api/me/password', { auth: 'user' }, async ({ user, body }) => {
   if (!(await checkPassword(String(body.current || ''), user.passHash))) fail(400, 'Current password is wrong');
   if (next.length < 6 || next.length > 100) fail(400, 'New password must be at least 6 characters');
   user.passHash = await hashPassword(next);
-  user.tv += 1;
+  user.tv += 1; // logs out every other device
   save();
   return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400) };
 });
 
+// ----- shopping -----
 function couponDiscount(code, pricePaise) {
   if (!code) return { discountPaise: 0, coupon: null };
   const c = db.coupons.find((x) => x.code.toLowerCase() === String(code).trim().toLowerCase());
@@ -480,6 +486,7 @@ route('POST', '/api/coupon/check', { auth: 'user' }, ({ body }) => {
 
 route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
   limit('buy:' + user.id, 30, 60 * 1000);
+  if (db.settings.maintenanceMode) fail(503, db.settings.maintenanceMessage || 'Shop is under maintenance. Please try again later.');
   const product = db.products.find((p) => p.id === body.productId && p.active);
   if (!product) fail(404, 'Product not found');
   const { discountPaise, coupon } = couponDiscount(body.coupon, product.pricePaise);
@@ -490,6 +497,7 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
   const key = db.keys.find((k) => k.productId === product.id && k.status === 'available');
   if (!key) fail(409, 'Out of stock');
 
+  // From here on nothing awaits, so no other request can sneak in between these steps.
   const order = {
     id: uid(),
     userId: user.id,
@@ -508,6 +516,16 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
   if (coupon) coupon.used += 1;
   addTxn(user, 'purchase', -price, product.name);
   db.orders.push(order);
+  // One reward per referred account, only after its first successful key purchase.
+  const referral = db.referrals.find((r) => r.referredUserId === user.id && r.status === 'pending');
+  if (referral && referral.referrerId !== user.id) {
+    const referrer = db.users.find((u) => u.id === referral.referrerId && !u.banned);
+    if (referrer) {
+      addTxn(referrer, 'referral_reward', referral.rewardPaise, 'Referral reward for a friend’s first purchase');
+      referral.status = 'rewarded';
+      referral.rewardedAt = now();
+    }
+  }
   save();
   return { orderId: order.id, product: product.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
 });
@@ -529,6 +547,7 @@ route('GET', '/api/orders', { auth: 'user' }, ({ user }) =>
     })
 );
 
+// ----- wallet -----
 route('GET', '/api/wallet', { auth: 'user' }, ({ user }) => ({
   balance: rupees(user.balancePaise),
   transactions: db.txns
@@ -538,14 +557,14 @@ route('GET', '/api/wallet', { auth: 'user' }, ({ user }) => ({
     .map((t) => ({ id: t.id, type: t.type, amount: rupees(t.amountPaise), note: t.note, createdAt: t.createdAt })),
 }));
 
-route('POST', '/api/topup', { auth: 'user' }, async ({ user, body, req }) => {
+route('POST', '/api/topup', { auth: 'user', }, async ({ user, body, req }) => {
   limit('topup:' + user.id, 10, 3600 * 1000);
   const amountPaise = Math.round(Number(body.amount) * 100);
   if (!Number.isFinite(amountPaise) || amountPaise < db.settings.minTopupPaise || amountPaise > db.settings.maxTopupPaise) {
     fail(400, `Amount must be between ₹${rupees(db.settings.minTopupPaise)} and ₹${rupees(db.settings.maxTopupPaise)}`);
   }
-    const pay = {
-    id: 'PAY' + Date.now() + Math.floor(Math.random() * 1000), // Clean alphanumeric ID without hyphens
+  const pay = {
+    id: uid(),
     userId: user.id,
     username: user.username,
     amountPaise,
@@ -556,7 +575,6 @@ route('POST', '/api/topup', { auth: 'user' }, async ({ user, body, req }) => {
     createdAt: now(),
     paidAt: null,
   };
-  
   const baseUrl = PUBLIC_URL || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
   try {
     const g = await gateway.create(pay, { returnUrl: `${baseUrl}/?pay=${pay.id}` });
@@ -571,47 +589,26 @@ route('POST', '/api/topup', { auth: 'user' }, async ({ user, body, req }) => {
   return { paymentId: pay.id, payUrl: pay.payUrl, amount: rupees(amountPaise), testMode: MOCK_MODE };
 });
 
+// The page calls this after the customer comes back from the payment app.
 route('GET', '/api/payments/:id', { auth: 'user' }, async ({ user, params }) => {
   const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
   if (!pay) fail(404, 'Payment not found');
   if (pay.status === 'pending' && !MOCK_MODE) {
     try {
       const r = await gateway.check(pay);
-      if (pay.status === 'pending' && !MOCK_MODE) {
-  try {
-    const r = await gateway.check(pay);
-    const gStatus = String(r.status || '').toLowerCase(); // Yeh uppercase/lowercase dono ko handle kar lega
-    
-    if (gStatus === 'paid' && r.amountPaise >= pay.amountPaise) {
-      settlePayment(pay, 'Wallet top-up');
-    } 
-    else if (gStatus === 'failed' || gStatus === 'cancelled' || gStatus === 'expired') {
-      pay.status = 'failed';
-      save();
-    }
-  } catch (e) {
-    console.error('gateway check failed:', e.message);
-  }
+      if (r.status === 'paid' && r.amountPaise >= pay.amountPaise) settlePayment(pay, 'Wallet top-up');
+      else if (r.status === 'failed') {
+        pay.status = 'failed';
+        save();
       }
-      
-      
     } catch (e) {
       console.error('gateway check failed:', e.message);
     }
   }
   return { id: pay.id, status: pay.status, amount: rupees(pay.amountPaise), balance: rupees(user.balancePaise) };
 });
-route('POST', '/api/payments/:id/fail', { auth: 'user' }, async ({ user, params }) => {
-  const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
-  if (!pay) fail(404, 'Payment not found');
-  if (pay.status === 'pending') {
-    pay.status = 'failed';
-    save();
-  }
-  return { success: true };
-});
 
-
+// Test mode only: pretend the customer paid.
 route('POST', '/api/payments/:id/simulate', { auth: 'user' }, ({ user, params }) => {
   if (!MOCK_MODE) fail(404, 'Not found');
   const pay = db.payments.find((p) => p.id === params.id && p.userId === user.id);
@@ -695,10 +692,40 @@ function readProductFields(body, partial) {
     out.pricePaise = Math.round(price * 100);
   }
   if (body.description !== undefined) out.description = String(body.description).trim().slice(0, 300);
-  if (body.category !== undefined) out.category = String(body.category).trim().slice(0, 30);
+  if (body.category !== undefined) out.category = String(body.category).trim().slice(0, 50);
+  if (body.websiteUrl !== undefined) {
+    const rawUrl = String(body.websiteUrl || '').trim();
+    if (rawUrl) { let parsed; try { parsed = new URL(rawUrl); } catch (_) { fail(400, 'Website link must be a valid https:// or http:// URL'); } if (!['http:', 'https:'].includes(parsed.protocol)) fail(400, 'Website link must start with http:// or https://'); }
+    out.websiteUrl = rawUrl;
+  }
   if (body.active !== undefined) out.active = !!body.active;
   return out;
 }
+
+route('GET', '/api/admin/categories', A, () => (db.categories || []).map((c) => ({ ...c, productCount: db.products.filter((p) => p.category === c.name).length })));
+route('POST', '/api/admin/categories', A, ({ body }) => {
+  const name = String(body.name || '').trim().slice(0, 50);
+  if (!name) fail(400, 'Category name is required');
+  if (!Array.isArray(db.categories)) db.categories = [];
+  if (db.categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) fail(409, 'Category already exists');
+  const category = { id: uid(), name, createdAt: now() };
+  db.categories.push(category); save(); return reply(201, category);
+});
+route('PUT', '/api/admin/categories/:id', A, ({ params, body }) => {
+  const c = (db.categories || []).find((x) => x.id === params.id);
+  if (!c) fail(404, 'Category not found');
+  const name = String(body.name || '').trim().slice(0, 50);
+  if (!name) fail(400, 'Category name is required');
+  if (db.categories.some((x) => x.id !== c.id && x.name.toLowerCase() === name.toLowerCase())) fail(409, 'Category already exists');
+  const old = c.name; c.name = name;
+  db.products.forEach((p) => { if (p.category === old) p.category = name; }); save(); return c;
+});
+route('DELETE', '/api/admin/categories/:id', A, ({ params }) => {
+  const c = (db.categories || []).find((x) => x.id === params.id);
+  if (!c) fail(404, 'Category not found');
+  if (db.products.some((p) => p.category === c.name)) fail(409, 'Move or delete products in this category before deleting it');
+  db.categories = db.categories.filter((x) => x.id !== c.id); save(); return { ok: true };
+});
 
 route('GET', '/api/admin/products', A, () => db.products.map(adminProduct));
 
@@ -785,6 +812,7 @@ route('DELETE', '/api/admin/keys/:id', A, ({ params }) => {
   return { ok: true };
 });
 
+// ----- users -----
 route('GET', '/api/admin/users', A, ({ query }) => {
   const q = (query.get('q') || '').toLowerCase();
   return db.users
@@ -856,6 +884,7 @@ route('POST', '/api/admin/users/:id/password', A, async ({ params, body }) => {
   return { ok: true };
 });
 
+// ----- orders and payments -----
 function adminOrderRows(query) {
   const q = (query.get('q') || '').toLowerCase();
   const status = query.get('status') || '';
@@ -918,6 +947,7 @@ route('POST', '/api/admin/payments/:id/approve', A, ({ params }) => {
   return { status: p.status };
 });
 
+// ----- coupons -----
 route('GET', '/api/admin/coupons', A, () =>
   db.coupons.map((c) => ({
     id: c.id, code: c.code, type: c.type, value: c.value, maxUses: c.maxUses, used: c.used,
@@ -963,11 +993,15 @@ route('DELETE', '/api/admin/coupons/:id', A, ({ params }) => {
   return { ok: true };
 });
 
+// ----- settings -----
 route('GET', '/api/admin/settings', A, () => ({
   siteName: db.settings.siteName,
   announcement: db.settings.announcement,
   supportLink: db.settings.supportLink,
   supportText: db.settings.supportText,
+  maintenanceMode: !!db.settings.maintenanceMode,
+  maintenanceMessage: db.settings.maintenanceMessage || 'We are under maintenance. Please check back soon.',
+  referralReward: rupees(db.settings.referralRewardPaise === undefined ? 10 : db.settings.referralRewardPaise / 100),
   minTopup: rupees(db.settings.minTopupPaise),
   maxTopup: rupees(db.settings.maxTopupPaise),
   gateway: GATEWAY,
@@ -978,6 +1012,9 @@ route('PUT', '/api/admin/settings', A, ({ body }) => {
   const s = db.settings;
   if (body.siteName !== undefined) s.siteName = String(body.siteName).trim().slice(0, 40) || 'Key Store';
   if (body.announcement !== undefined) s.announcement = String(body.announcement).trim().slice(0, 300);
+  if (body.maintenanceMode !== undefined) s.maintenanceMode = body.maintenanceMode === true || body.maintenanceMode === 'true';
+  if (body.maintenanceMessage !== undefined) s.maintenanceMessage = String(body.maintenanceMessage).trim().slice(0, 300) || 'We are under maintenance. Please check back soon.';
+  if (body.referralReward !== undefined) s.referralRewardPaise = Math.max(0, Math.min(1000000, Math.round(Number(body.referralReward) * 100) || 0));
   if (body.supportText !== undefined) s.supportText = String(body.supportText).trim().slice(0, 40);
   if (body.supportLink !== undefined) {
     const link = String(body.supportLink).trim();
@@ -990,6 +1027,9 @@ route('PUT', '/api/admin/settings', A, ({ body }) => {
   return { ok: true };
 });
 
+// ======================================================================
+// Start
+// ======================================================================
 async function start() {
   await loadDb();
   server.listen(PORT, () => {

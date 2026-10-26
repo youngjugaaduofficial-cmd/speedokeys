@@ -201,7 +201,7 @@ function drawChrome() {
   right.replaceChildren(me
     ? h('button', { class: 'btn', style: 'padding:7px 14px', onclick: () => { tab = 'wallet'; draw(); } }, '🪙 ' + rupees(me.balance))
     : h('button', { class: 'btn primary', style: 'padding:7px 14px', onclick: () => authModal() }, 'Login'));
-  const items = [['shop', '🎮', 'Shop'], ['wallet', '🪙', 'Wallet'], ['keys', '🔑', 'My keys'], ['me', '👤', 'Profile']];
+  const items = [['shop', '🎮', 'Shop'], ['wallet', '🪙', 'Wallet'], ['keys', '🔑', 'My keys'], ['refer', '🎁', 'Refer'], ['me', '👤', 'Profile']];
   document.getElementById('nav').replaceChildren(...items.map(([id, icon, label]) =>
     h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; draw(); window.scrollTo(0, 0); } }, h('span', {}, icon), label)));
 }
@@ -218,6 +218,7 @@ async function draw() {
   if (!token) return view.replaceChildren(needLogin(tab === 'wallet' ? 'Log in to see your wallet and add money.' : tab === 'keys' ? 'Log in to see the keys you bought.' : 'Log in to see your profile.'));
   if (tab === 'wallet') return walletView();
   if (tab === 'keys') return keysView();
+  if (tab === 'refer') return referralsView();
   return profileView();
 }
 
@@ -233,7 +234,9 @@ function authModal(startSignup) {
     const go = async () => {
       btn.disabled = true;
       try {
-        const r = await api('POST', signup ? '/api/signup' : '/api/login', { username: u.value, password: p.value });
+        const referralCode = (new URLSearchParams(location.search).get('ref') || store.get('ks_referral') || '').trim().toUpperCase();
+        const r = await api('POST', signup ? '/api/signup' : '/api/login', signup ? { username: u.value, password: p.value, referralCode } : { username: u.value, password: p.value });
+        if (signup) store.del('ks_referral');
         token = r.token; store.set('ks_token', token); me = r.user; ov.close();
         toast('Welcome, ' + me.username + '!'); await draw(); handlePaymentReturn();
       } catch (e) { toast(e.message); btn.disabled = false; }
@@ -254,7 +257,8 @@ function authModal(startSignup) {
 async function shopView() {
   const wrap = h('div', { class: 'stack' });
   view.replaceChildren(wrap);
-  if (cfg.announcement) wrap.append(h('div', { class: 'banner' }, '📢 ' + cfg.announcement));
+  if (cfg.maintenanceMode) wrap.append(h('div', { class: 'test', style: 'font-size:17px;padding:16px;text-align:center' }, '🚧 MAINTENANCE MODE', h('div', { style: 'margin-top:6px;color:var(--ink)' }, cfg.maintenanceMessage || 'We are under maintenance. Please check back soon.')));
+  if (cfg.announcement && !cfg.maintenanceMode) wrap.append(h('div', { class: 'banner' }, '📢 ' + cfg.announcement));
   if (cfg.testMode) wrap.append(h('div', { class: 'test' }, 'TEST MODE: payments are simulated, no real money is used.'));
   const list = h('div', { class: 'grid' }, h('div', { class: 'muted' }, h('span', { class: 'spin' }), ' Loading…'));
   const chipsBox = h('div', { class: 'chips' });
@@ -271,6 +275,7 @@ async function shopView() {
     list.replaceChildren(...shown.map((p) => h('div', { class: 'card hot stack' },
       h('div', { class: 'row' }, h('h3', {}, p.name), p.category ? h('span', { class: 'tag' }, p.category) : null),
       p.description ? h('div', { class: 'muted' }, p.description) : null,
+      p.websiteUrl ? h('a', { href: p.websiteUrl, target: '_blank', rel: 'noopener noreferrer', class: 'btn ghost', style: 'text-align:center;text-decoration:none' }, '🌐 Visit website') : null,
       h('div', { class: 'row' },
         h('div', {}, h('div', { class: 'price' }, rupees(p.price)),
           p.inStock > 0 ? h('span', { class: 'tag ' + (p.inStock <= 3 ? 'warn' : 'ok') }, p.inStock <= 3 ? 'Only ' + p.inStock + ' left' : 'In stock') : h('span', { class: 'tag bad' }, 'Sold out')),
@@ -400,6 +405,29 @@ async function keysView() {
   } catch (e) { wrap.replaceChildren(h('p', { class: 'err' }, e.message)); }
 }
 
+// ---------- refer & earn ----------
+async function referralsView() {
+  const wrap = h('div', { class: 'stack' }, h('span', { class: 'spin' }, ' Loading rewards…'));
+  view.replaceChildren(wrap);
+  try {
+    const r = await api('GET', '/api/referrals');
+    const link = location.origin + location.pathname + '?ref=' + encodeURIComponent(r.code);
+    const stats = h('div', { class: 'grid' },
+      h('div', { class: 'card' }, h('div', { class: 'price', style: 'font-size:24px' }, String(r.total)), h('div', { class: 'small muted' }, 'FRIENDS REFERRED')),
+      h('div', { class: 'card' }, h('div', { class: 'price', style: 'font-size:24px;color:var(--ok)' }, rupees(r.earned)), h('div', { class: 'small muted' }, 'REWARDS EARNED')),
+      h('div', { class: 'card' }, h('div', { class: 'price', style: 'font-size:24px;color:var(--warn)' }, String(r.pending)), h('div', { class: 'small muted' }, 'PENDING REWARDS')));
+    wrap.replaceChildren(
+      h('div', { class: 'card stack' }, h('div', { class: 'unlock' }, 'REFER & EARN'), h('p', { class: 'muted', style: 'text-align:center;margin:0' }, 'Invite friends to Speedo Key Shop and earn wallet rewards.'),
+        h('div', { class: 'banner stack' }, h('div', { class: 'small muted' }, 'YOUR REFERRAL CODE'), h('div', { class: 'key' }, r.code), h('button', { class: 'btn full', onclick: () => copyText(r.code) }, '📋 Copy code')),
+        h('div', { class: 'stack' }, h('label', {}, 'YOUR INVITE LINK'), h('input', { readonly: 'readonly', value: link }), h('button', { class: 'btn primary full', onclick: () => copyText(link) }, '🔗 Copy referral link'),
+          h('button', { class: 'btn full', onclick: () => { const msg = 'Join me on Speedo Key Shop! Sign up using my referral link: ' + link; if (navigator.share) navigator.share({ title: 'Speedo Key Shop', text: msg, url: link }).catch(() => {}); else copyText(msg); } }, '📤 Share with friends'))),
+      stats,
+      h('div', { class: 'card stack' }, h('h3', {}, '🎁 How to earn'), h('div', {}, '1. Share your referral link with a friend.'), h('div', {}, '2. Your friend creates a new account using your link.'), h('div', {}, '3. After their first successful key purchase, ' + rupees(r.reward) + ' is added to your wallet.'), h('p', { class: 'small muted', style: 'margin:0' }, 'One reward per referred account. Self-referrals are not allowed.')),
+      h('div', { class: 'card stack' }, h('h3', {}, 'Referral history'), ...(r.referrals.length ? r.referrals.map((x) => h('div', { class: 'row' }, h('span', {}, when(x.createdAt)), h('span', { class: 'tag ' + (x.status === 'rewarded' ? 'ok' : 'warn') }, x.status === 'rewarded' ? rupees(x.reward) + ' earned' : 'Waiting for purchase'))) : [h('p', { class: 'muted' }, 'No referrals yet. Share your link to get started!')]))
+    );
+  } catch (e) { wrap.replaceChildren(h('p', { class: 'err' }, e.message)); }
+}
+
 // ---------- profile ----------
 async function profileView() {
   try { me = await api('GET', '/api/me'); drawChrome(); } catch (e) { return view.replaceChildren(h('p', { class: 'err' }, e.message)); }
@@ -428,28 +456,9 @@ async function handlePaymentReturn() {
   const qs = new URLSearchParams(location.search);
   const pid = qs.get('pay') || store.get('ks_pay');
   if (!pid || !token) return;
-
-  const urlStatus = (qs.get('status') || qs.get('txStatus') || qs.get('state') || '').toLowerCase();
-  if (['failed', 'cancelled', 'canceled', 'failure', 'error'].includes(urlStatus)) {
-    history.replaceState(null, '', location.pathname);
-    store.del('ks_pay');
-    try { await api('POST', '/api/payments/' + encodeURIComponent(pid) + '/fail'); } catch(e){}
-    toast('Payment cancelled.');
-    draw();
-    return;
-  }
-
   if (qs.get('pay')) history.replaceState(null, '', location.pathname);
-  const box = h('div', { class: 'stack', style: 'text-align:center' }, 
-    h('span', { class: 'spin' }), 
-    h('div', {}, 'Checking your payment…'),
-    h('button', { class: 'btn danger full', style: 'margin-top:8px', onclick: async () => {
-      try { await api('POST', '/api/payments/' + encodeURIComponent(pid) + '/fail'); } catch(e){}
-      store.del('ks_pay'); ov.close(); toast('Payment cancelled'); draw();
-    }}, 'Cancel / Didn\'t pay')
-  );
+  const box = h('div', { class: 'stack', style: 'text-align:center' }, h('span', { class: 'spin' }), h('div', {}, 'Checking your payment…'));
   const ov = modal(box);
-
   for (let i = 0; i < 8; i++) {
     try {
       const r = await api('GET', '/api/payments/' + encodeURIComponent(pid));
@@ -459,27 +468,18 @@ async function handlePaymentReturn() {
           h('button', { class: 'btn primary full', onclick: () => { ov.close(); tab = 'shop'; draw(); } }, 'Start shopping'));
         return;
       }
-      if (r.status === 'failed') { 
-        store.del('ks_pay'); 
-        ov.close(); 
-        toast('Payment failed or cancelled.'); 
-        draw(); 
-        return; 
-      }
+      if (r.status === 'failed') { store.del('ks_pay'); box.replaceChildren(h('div', { class: 'err' }, 'The payment failed. You were not charged.'), h('button', { class: 'btn full', onclick: () => ov.close() }, 'Close')); return; }
     } catch (e) { if (e.code === 404) { store.del('ks_pay'); ov.close(); return; } }
     await new Promise((r) => setTimeout(r, 3000));
   }
-  
   box.replaceChildren(h('div', {}, 'We have not received the payment yet. If money was deducted it will be added automatically within a few minutes.'),
     h('button', { class: 'btn primary full', onclick: () => { ov.close(); handlePaymentReturn(); } }, 'Check again'),
-    h('button', { class: 'btn ghost full', onclick: async () => {
-      try { await api('POST', '/api/payments/' + encodeURIComponent(pid) + '/fail'); } catch(e){}
-      store.del('ks_pay'); ov.close(); draw();
-    }}, 'Cancel / Didn\'t pay'),
     h('button', { class: 'btn ghost full', onclick: () => ov.close() }, 'Close'));
 }
-  
+
 // ---------- start ----------
+const incomingReferral = new URLSearchParams(location.search).get('ref');
+if (incomingReferral && /^[A-Z0-9]{4,20}$/i.test(incomingReferral)) store.set('ks_referral', incomingReferral.toUpperCase());
 (async () => {
   try { cfg = Object.assign(cfg, await api('GET', '/api/config')); } catch (e) {}
   if (token) { try { me = await api('GET', '/api/me'); } catch (e) {} }
