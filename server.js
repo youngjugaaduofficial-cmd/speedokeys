@@ -68,6 +68,7 @@ async function remote(cmd) {
     method: 'POST',
     headers: { Authorization: `Bearer ${REMOTE_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(cmd),
+    signal: AbortSignal.timeout(10000), // fail with a clear error instead of hanging forever
   });
   if (!r.ok) throw new Error('storage HTTP ' + r.status);
   const j = await r.json();
