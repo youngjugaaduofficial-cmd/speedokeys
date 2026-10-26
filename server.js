@@ -215,12 +215,14 @@ const gateways = {
   // and are never auto-credited. Admin can approve manually meanwhile.
   zapupi: {
     async create(payment, ctx) {
+      // ZapUPI wants a short alphanumeric id (like ORD12345), not a UUID with hyphens.
+      const zapOrderId = 'ORD' + payment.id.replace(/-/g, '').slice(0, 16).toUpperCase();
       const r = await fetch('https://pay.zapupi.com/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           zap_key: ZAP_KEY,
-          order_id: payment.id,
+          order_id: zapOrderId,
           amount: payment.amountPaise / 100,
           success_url: ctx.returnUrl,
           failed_url: ctx.returnUrl,
@@ -232,7 +234,7 @@ const gateways = {
       const d = j.data || j;
       const payUrl = d.payment_url || d.payUrl || d.pay_url || d.url || d.link || null;
       if (!payUrl) throw new Error('ZapUPI response had no payment URL, check the log above');
-      return { ref: String(d.order_id || payment.id), payUrl };
+      return { ref: zapOrderId, payUrl };
     },
     async check() {
       return { status: 'pending' }; // TODO: connect ZapUPI status API / webhook
@@ -660,7 +662,7 @@ route('POST', '/api/zapupi/webhook/:secret', { raw: true }, ({ params, raw, ip }
   try { data = JSON.parse(text); } catch (_) { data = Object.fromEntries(new URLSearchParams(text)); }
   console.log('zapupi webhook from', ip, JSON.stringify(data));
 
-  const pay = db.payments.find((p) => p.id === String(data.order_id || '') && p.gateway === 'zapupi');
+  const pay = db.payments.find((p) => p.ref === String(data.order_id || '') && p.gateway === 'zapupi');
   if (!pay) return { ok: true }; // unknown order (e.g. dashboard "Test" button): acknowledge, do nothing
   const status = String(data.status || '').toLowerCase();
 
@@ -671,7 +673,7 @@ route('POST', '/api/zapupi/webhook/:secret', { raw: true }, ({ params, raw, ip }
       console.error('zapupi webhook: AMOUNT MISMATCH, not credited', pay.id, 'expected', pay.amountPaise, 'got', amountPaise, paidPaise);
       return { ok: true }; // admin can review and approve manually
     }
-    if (data.txn_id) pay.ref = String(data.txn_id);
+    if (data.txn_id) pay.txnId = String(data.txn_id);
     settlePayment(pay, 'Wallet top-up (UPI)');
   } else if (status === 'failed' && pay.status === 'pending') {
     pay.status = 'failed';
