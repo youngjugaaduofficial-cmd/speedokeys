@@ -230,11 +230,13 @@ function authModal(startSignup) {
   const render = () => {
     const u = h('input', { placeholder: 'Username', autocomplete: 'username', autocapitalize: 'none' });
     const p = h('input', { type: 'password', placeholder: 'Password (min 6 characters)', autocomplete: signup ? 'new-password' : 'current-password' });
+    const prefill = (new URLSearchParams(location.search).get('ref') || store.get('ks_referral') || '').trim().toUpperCase();
+    const ref = h('input', { placeholder: 'Referral code (optional)', autocapitalize: 'characters', autocomplete: 'off', value: prefill });
     const btn = h('button', { class: 'btn primary full' }, signup ? 'Create account' : 'Login');
     const go = async () => {
       btn.disabled = true;
       try {
-        const referralCode = (new URLSearchParams(location.search).get('ref') || store.get('ks_referral') || '').trim().toUpperCase();
+        const referralCode = ref.value.trim().toUpperCase();
         const r = await api('POST', signup ? '/api/signup' : '/api/login', signup ? { username: u.value, password: p.value, referralCode } : { username: u.value, password: p.value });
         if (signup) store.del('ks_referral');
         token = r.token; store.set('ks_token', token); me = r.user; ov.close();
@@ -247,6 +249,7 @@ function authModal(startSignup) {
       h('div', { class: 'unlock', style: 'font-size:18px' }, signup ? 'JOIN THE GAME' : 'WELCOME BACK'),
       h('div', {}, h('label', {}, 'Username'), u),
       h('div', {}, h('label', {}, 'Password'), p),
+      signup ? h('div', {}, h('label', {}, 'Referral code (optional)'), ref) : null,
       btn,
       h('button', { class: 'btn ghost full', onclick: () => { signup = !signup; render(); } }, signup ? 'Have an account? Login' : 'New here? Sign up'));
   };
