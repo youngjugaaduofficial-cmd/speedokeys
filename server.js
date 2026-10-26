@@ -23,6 +23,14 @@ if (!ADMIN_PASSWORD || !JWT_SECRET) {
   console.error('ADMIN_PASSWORD and JWT_SECRET must be set (see .env.example).');
   process.exit(1);
 }
+if (process.env.GATEWAY === 'zapupi' && !process.env.ZAP_KEY) {
+  console.error('ZAP_KEY must be set when GATEWAY=zapupi.');
+  process.exit(1);
+}
+if (process.env.GATEWAY === 'zapupi' && (process.env.ZAP_WEBHOOK_SECRET || '').length < 16) {
+  console.error('ZAP_WEBHOOK_SECRET (16+ random characters) must be set when GATEWAY=zapupi.');
+  process.exit(1);
+}
 if (REMOTE_URL && !REMOTE_TOKEN) {
   console.error('UPSTASH_REDIS_REST_TOKEN must be set together with UPSTASH_REDIS_REST_URL.');
   process.exit(1);
@@ -200,13 +208,32 @@ const gateways = {
       return { status: 'pending' };
     },
   },
-  // ZapUPI goes here once its API details are confirmed.
+  // ZapUPI: create-order is connected. Status check is NOT connected yet
+  // (waiting for ZapUPI's status/webhook docs), so payments stay 'pending'
+  // and are never auto-credited. Admin can approve manually meanwhile.
   zapupi: {
-    async create() {
-      throw new Error('ZapUPI is not connected yet');
+    async create(payment, ctx) {
+      const r = await fetch('https://pay.zapupi.com/api/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zap_key: process.env.ZAP_KEY,
+          order_id: payment.id,
+          amount: payment.amountPaise / 100,
+          success_url: ctx.returnUrl,
+          failed_url: ctx.returnUrl,
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      console.log('zapupi create-order response:', JSON.stringify(j)); // never contains our key
+      if (!r.ok) throw new Error('ZapUPI HTTP ' + r.status);
+      const d = j.data || j;
+      const payUrl = d.payment_url || d.payUrl || d.pay_url || d.url || d.link || null;
+      if (!payUrl) throw new Error('ZapUPI response had no payment URL, check the log above');
+      return { ref: String(d.order_id || payment.id), payUrl };
     },
     async check() {
-      throw new Error('ZapUPI is not connected yet');
+      return { status: 'pending' }; // TODO: connect ZapUPI status API / webhook
     },
   },
 };
@@ -615,6 +642,40 @@ route('POST', '/api/payments/:id/simulate', { auth: 'user' }, ({ user, params })
   if (!pay) fail(404, 'Payment not found');
   settlePayment(pay, 'Wallet top-up (test)');
   return { id: pay.id, status: pay.status, amount: rupees(pay.amountPaise), balance: rupees(user.balancePaise) };
+});
+
+// ZapUPI webhook. Protected by: secret URL path, optional source-IP check,
+// and strict matching of order id + amount. Credits a payment only once.
+route('POST', '/api/zapupi/webhook/:secret', { raw: true }, ({ params, raw, ip }) => {
+  if (GATEWAY !== 'zapupi' || !safeEqual(params.secret, process.env.ZAP_WEBHOOK_SECRET || '')) fail(404, 'Not found');
+  const allowedIp = process.env.ZAP_WEBHOOK_IP;
+  if (allowedIp && ip !== allowedIp) {
+    console.warn('zapupi webhook: blocked IP', ip);
+    fail(403, 'Forbidden');
+  }
+  const text = raw.toString('utf8');
+  let data = {};
+  try { data = JSON.parse(text); } catch (_) { data = Object.fromEntries(new URLSearchParams(text)); }
+  console.log('zapupi webhook from', ip, JSON.stringify(data));
+
+  const pay = db.payments.find((p) => p.id === String(data.order_id || '') && p.gateway === 'zapupi');
+  if (!pay) return { ok: true }; // unknown order (e.g. dashboard "Test" button): acknowledge, do nothing
+  const status = String(data.status || '').toLowerCase();
+
+  if (status === 'success') {
+    const amountPaise = Math.round(Number(data.amount) * 100);
+    const paidPaise = data.pay_amount === undefined ? amountPaise : Math.round(Number(data.pay_amount) * 100);
+    if (amountPaise !== pay.amountPaise || !(paidPaise >= pay.amountPaise)) {
+      console.error('zapupi webhook: AMOUNT MISMATCH, not credited', pay.id, 'expected', pay.amountPaise, 'got', amountPaise, paidPaise);
+      return { ok: true }; // admin can review and approve manually
+    }
+    if (data.txn_id) pay.ref = String(data.txn_id);
+    settlePayment(pay, 'Wallet top-up (UPI)');
+  } else if (status === 'failed' && pay.status === 'pending') {
+    pay.status = 'failed';
+    save();
+  }
+  return { ok: true };
 });
 
 // ======================================================================
