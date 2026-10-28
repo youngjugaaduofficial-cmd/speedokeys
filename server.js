@@ -107,10 +107,9 @@ function save() {
     return;
   }
   if (json.length > 900000) console.warn('Database is getting large for the free Upstash limit (1 MB).');
-  writeChain = writeChain
-    .then(() => remote(['SET', REMOTE_KEY, json]))
-    .catch((e) => console.error('SAVE FAILED:', e.message));
+  writeChain = writeChain.catch(() => {}).then(() => remote(['SET', REMOTE_KEY, json]));
   pendingSave = writeChain;
+  writeChain.catch((e) => console.error('SAVE FAILED:', e.message));
 }
 
 // ======================================================================
@@ -405,6 +404,8 @@ route('GET', '/api/config', () => ({
   minTopup: rupees(db.settings.minTopupPaise),
   maxTopup: rupees(db.settings.maxTopupPaise),
   testMode: MOCK_MODE,
+  maintenanceMode: !!db.settings.maintenanceMode,
+  maintenanceMessage: db.settings.maintenanceMessage || 'We are under maintenance. Please check back soon.',
 }));
 
 route('GET', '/api/products', () =>
@@ -444,7 +445,7 @@ route('POST', '/api/signup', async ({ body, ip }) => {
   };
   while (db.users.some((u) => u.referralCode === user.referralCode)) user.referralCode = 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase();
   db.users.push(user);
-  if (referrer && referrer.id !== user.id) db.referrals.push({ id: uid(), referrerId: referrer.id, referredUserId: user.id, code: rawCode, status: 'pending', rewardPaise: 1000, createdAt: now(), rewardedAt: null });
+  if (referrer && referrer.id !== user.id) db.referrals.push({ id: uid(), referrerId: referrer.id, referredUserId: user.id, code: rawCode, status: 'pending', rewardPaise: Number.isSafeInteger(db.settings.referralRewardPaise) ? db.settings.referralRewardPaise : 1000, createdAt: now(), rewardedAt: null });
   save();
   return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) };
 });
@@ -476,7 +477,7 @@ route('GET', '/api/referrals', { auth: 'user' }, ({ user }) => {
   const mine = db.referrals.filter((r) => r.referrerId === user.id);
   return {
     code: user.referralCode,
-    reward: 10,
+    reward: rupees(Number.isSafeInteger(db.settings.referralRewardPaise) ? db.settings.referralRewardPaise : 1000),
     total: mine.length,
     rewarded: mine.filter((r) => r.status === 'rewarded').length,
     pending: mine.filter((r) => r.status === 'pending').length,
@@ -666,10 +667,10 @@ route('POST', '/api/zapupi/webhook/:secret', { raw: true }, ({ params, raw, ip }
   if (!pay) return { ok: true }; // unknown order (e.g. dashboard "Test" button): acknowledge, do nothing
   const status = String(data.status || '').toLowerCase();
 
-  if (status === 'success') {
+  if (status === 'success' && pay.status === 'pending') {
     const amountPaise = Math.round(Number(data.amount) * 100);
     const paidPaise = data.pay_amount === undefined ? amountPaise : Math.round(Number(data.pay_amount) * 100);
-    if (amountPaise !== pay.amountPaise || !(paidPaise >= pay.amountPaise)) {
+    if (!Number.isFinite(amountPaise) || !Number.isFinite(paidPaise) || amountPaise !== pay.amountPaise || paidPaise < pay.amountPaise) {
       console.error('zapupi webhook: AMOUNT MISMATCH, not credited', pay.id, 'expected', pay.amountPaise, 'got', amountPaise, paidPaise);
       return { ok: true }; // admin can review and approve manually
     }
@@ -738,6 +739,7 @@ function adminProduct(p) {
     name: p.name,
     description: p.description || '',
     category: p.category || '',
+    websiteUrl: p.websiteUrl || '',
     price: rupees(p.pricePaise),
     active: p.active,
     available: ks.filter((k) => k.status === 'available').length,
@@ -941,12 +943,13 @@ route('POST', '/api/admin/users/:id/balance', A, ({ params, body }) => {
 route('POST', '/api/admin/users/:id/password', A, async ({ params, body }) => {
   const u = db.users.find((x) => x.id === params.id);
   if (!u) fail(404, 'Not found');
-  const pw = String(body.password || '');
+  const generated = body.generate === true;
+  const pw = generated ? crypto.randomBytes(9).toString('base64url') : String(body.password || '');
   if (pw.length < 6 || pw.length > 100) fail(400, 'Password must be at least 6 characters');
   u.passHash = await hashPassword(pw);
   u.tv += 1;
   save();
-  return { ok: true };
+  return { ok: true, ...(generated ? { temporaryPassword: pw } : {}) };
 });
 
 // ----- orders and payments -----
@@ -1008,6 +1011,7 @@ route('POST', '/api/admin/payments/:id/approve', A, ({ params }) => {
   const p = db.payments.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
   if (p.status === 'paid') fail(409, 'Already paid');
+  if (p.status !== 'pending') fail(409, 'Only pending payments can be approved');
   settlePayment(p, 'Wallet top-up (approved by admin)');
   return { status: p.status };
 });
@@ -1097,6 +1101,7 @@ route('PUT', '/api/admin/settings', A, ({ body }) => {
 // ======================================================================
 async function start() {
   await loadDb();
+  await pendingSave;
   server.listen(PORT, () => {
     console.log(`Server on :${PORT} | payments: ${GATEWAY}${MOCK_MODE ? ' (TEST MODE, no real money)' : ''} | storage: ${REMOTE_URL ? 'Upstash' : 'file'}`);
   });

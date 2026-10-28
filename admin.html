@@ -141,13 +141,14 @@ const errBox = (e) => h('p', { class: 'err' }, e.message);
 const statusTag = (s) => h('span', { class: 'tag ' + (['completed', 'paid', 'available'].includes(s) ? 'ok' : ['pending', 'sold'].includes(s) ? 'warn' : 'bad') }, s);
 
 // ---------- shell ----------
-const TABS = [['dash', '📊 Dashboard'], ['products', '🎮 Products'], ['categories', '🗂 Categories'], ['orders', '🧾 Orders'], ['users', '👥 Users'], ['coupons', '🎟 Coupons'], ['payments', '💳 Payments'], ['referrals', '🎁 Referrals'], ['settings', '⚙ Settings']];
+const TABS = [['dash', '📊 Dashboard'], ['categories', '🗂 Categories'], ['products', '🎮 Products'], ['orders', '🧾 Orders'], ['users', '👥 Users'], ['coupons', '🎟 Coupons'], ['payments', '💳 Payments'], ['settings', '⚙ Settings']];
+let adminCategories = [];
 function draw() {
   const hdr = document.getElementById('hdr');
   if (!token) { hdr.style.display = 'none'; return loginView(); }
   hdr.style.display = 'block';
   document.getElementById('tabs').replaceChildren(...TABS.map(([id, label]) => h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; draw(); } }, label)));
-  ({ dash: dashView, products: productsView, categories: categoriesView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, referrals: referralsView, settings: settingsView })[tab]();
+  ({ dash: dashView, categories: categoriesView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView })[tab]();
 }
 document.getElementById('logout').addEventListener('click', () => { token = null; ss.del(); draw(); });
 
@@ -190,60 +191,81 @@ async function dashView() {
 }
 const tile = (label, value, color) => h('div', { class: 'tile ' + (color || '') }, h('div', { class: 'n' }, String(value)), h('div', { class: 'l' }, label));
 
+// ---------- categories ----------
+async function categoriesView() {
+  view.replaceChildren(busy());
+  try {
+    const cats = await api('GET', '/api/admin/categories');
+    adminCategories = cats;
+    const name = h('input', { placeholder: 'New category name (e.g. Android, iOS, Gaming)' });
+    const add = h('button', { class: 'btn primary full' }, '＋ Create category');
+    add.addEventListener('click', async () => {
+      add.disabled = true;
+      try { await api('POST', '/api/admin/categories', { name: name.value }); toast('Category created'); categoriesView(); }
+      catch (e) { toast(e.message); add.disabled = false; }
+    });
+    const cards = cats.map((c) => {
+      const rename = h('button', { class: 'btn', onclick: async () => {
+        const next = prompt('Rename category', c.name);
+        if (!next || next.trim() === c.name) return;
+        try { await api('PUT', '/api/admin/categories/' + c.id, { name: next.trim() }); toast('Category renamed'); categoriesView(); }
+        catch (e) { toast(e.message); }
+      } }, 'Rename');
+      const del = h('button', { class: 'btn danger', onclick: async () => {
+        if (!confirm('Delete category ' + c.name + '? It must be empty.')) return;
+        try { await api('DELETE', '/api/admin/categories/' + c.id); toast('Category deleted'); categoriesView(); }
+        catch (e) { toast(e.message); }
+      } }, 'Delete');
+      return h('div', { class: 'card stack' },
+        h('div', { class: 'row' }, h('h3', {}, c.name), h('span', { class: 'tag' }, c.productCount + ' products')),
+        h('div', { class: 'gap' }, rename, del));
+    });
+    if (!cards.length) cards.push(h('p', { class: 'muted' }, 'No categories yet. Create one before adding categorized products.'));
+    view.replaceChildren(h('div', { class: 'stack' },
+      h('div', { class: 'card stack' }, h('h3', {}, 'Create category first'), name, add),
+      h('div', { class: 'grid' }, ...cards)));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
 // ---------- products ----------
-async function productForm(p, onDone) {
-  let cats = [];
-  try { cats = await api('GET', '/api/admin/categories'); } catch (e) { toast(e.message); }
+function productForm(p, onDone) {
   const name = h('input', { placeholder: 'Name', value: p ? p.name : '' });
   const cat = h('select', {});
-  cat.append(h('option', { value: '' }, 'Choose a category'));
-  cats.forEach((c) => cat.append(h('option', { value: c.name }, c.name)));
-  if (p && p.category && !cats.some((c) => c.name === p.category)) cat.append(h('option', { value: p.category }, p.category + ' (legacy)'));
+  const choices = adminCategories.slice();
+  if (p && p.category && !choices.some((c) => c.name === p.category)) choices.unshift({ name: p.category });
+  cat.replaceChildren(h('option', { value: '' }, 'No category'), ...choices.map((c) => h('option', { value: c.name }, c.name)));
   cat.value = p ? (p.category || '') : '';
+  const websiteUrl = h('input', { placeholder: 'https://example.com (optional)', value: p ? (p.websiteUrl || '') : '' });
   const desc = h('input', { placeholder: 'Short description (e.g. 1 day)', value: p ? p.description : '' });
-  const websiteUrl = h('input', { placeholder: 'Website link (https://example.com)', value: p ? (p.websiteUrl || '') : '' });
-  websiteUrl.type = 'url';
   const price = h('input', { placeholder: 'Price in ₹', inputmode: 'decimal', value: p ? String(p.price) : '' });
   const btn = h('button', { class: 'btn primary full' }, p ? 'Save changes' : 'Add product');
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      if (!cat.value) throw new Error('Pehle Categories tab mein category banao aur select karo.');
       const body = { name: name.value, category: cat.value, description: desc.value, websiteUrl: websiteUrl.value, price: Number(price.value) };
       if (p) await api('PUT', '/api/admin/products/' + p.id, body); else await api('POST', '/api/admin/products', body);
       toast(p ? 'Saved' : 'Product added'); onDone();
     } catch (e) { toast(e.message); btn.disabled = false; }
   });
-  return [h('div', {}, h('label', {}, 'Name'), name), h('div', {}, h('label', {}, 'Category (create first in Categories tab)'), cat), h('div', {}, h('label', {}, 'Description'), desc), h('div', {}, h('label', {}, 'Website link where this key/service is used'), websiteUrl), h('div', {}, h('label', {}, 'Price (₹)'), price), btn];
-}
-
-async function categoriesView() {
-  view.replaceChildren(busy());
-  try {
-    const cats = await api('GET', '/api/admin/categories');
-    const name = h('input', { placeholder: 'New category name (e.g. VPN, Gaming, Software)' });
-    const add = h('button', { class: 'btn primary full' }, '＋ Create category');
-    add.addEventListener('click', async () => { add.disabled = true; try { await api('POST', '/api/admin/categories', { name: name.value }); toast('Category created'); categoriesView(); } catch (e) { toast(e.message); add.disabled = false; } });
-    view.replaceChildren(h('div', { class: 'stack' }, h('div', { class: 'card stack' }, h('h3', {}, '🗂 Create category first'), h('p', { class: 'muted small' }, 'Products ko category mein add karne se pehle yahan category banao.'), name, add), h('div', { class: 'grid' }, ...(cats.length ? cats.map((c) => h('div', { class: 'card stack' }, h('h3', {}, c.name), h('div', { class: 'muted' }, c.productCount + ' products'), h('div', { class: 'gap' }, h('button', { class: 'btn', onclick: async () => { const next = prompt('New category name', c.name); if (!next || !next.trim()) return; try { await api('PUT', '/api/admin/categories/' + c.id, { name: next.trim() }); toast('Category renamed'); categoriesView(); } catch (e) { toast(e.message); } } }, 'Rename'), h('button', { class: 'btn danger', onclick: async () => { if (!confirm('Delete category ' + c.name + '?')) return; try { await api('DELETE', '/api/admin/categories/' + c.id); categoriesView(); } catch (e) { toast(e.message); } } }, 'Delete')))) : [h('p', { class: 'muted' }, 'Abhi koi category nahi hai.')]))));
-  } catch (e) { view.replaceChildren(errBox(e)); }
+  return [h('div', {}, h('label', {}, 'Name'), name), h('div', {}, h('label', {}, 'Category (create it in Categories first)'), cat), h('div', {}, h('label', {}, 'Description'), desc), h('div', {}, h('label', {}, 'Product website / delivery link'), websiteUrl), h('div', {}, h('label', {}, 'Price (₹)'), price), btn];
 }
 
 async function productsView() {
   view.replaceChildren(busy());
   try {
-    const list = await api('GET', '/api/admin/products');
-    const addForm = await productForm(null, () => productsView());
-    const addBox = h('div', { class: 'card stack', style: 'display:none' }, h('h3', {}, 'New product'), ...addForm);
+    const results = await Promise.all([api('GET', '/api/admin/products'), api('GET', '/api/admin/categories')]);
+    const list = results[0]; adminCategories = results[1];
+    const addBox = h('div', { class: 'card stack', style: 'display:none' }, h('h3', {}, 'New product'), ...productForm(null, () => productsView()));
     view.replaceChildren(h('div', { class: 'stack' },
       h('button', { class: 'btn primary', onclick: () => { addBox.style.display = addBox.style.display === 'none' ? 'flex' : 'none'; } }, '＋ New product'), addBox,
       h('div', { class: 'grid' }, ...(list.length ? list.map((p) => h('div', { class: 'card stack' },
         h('div', { class: 'row' }, h('h3', { style: 'margin:0' }, p.name), h('span', { class: 'tag ' + (p.active ? 'ok' : 'bad') }, p.active ? 'Live' : 'Hidden')),
         h('div', { class: 'muted' }, [p.category, p.description].filter(Boolean).join(' • ') || '—'),
-        p.websiteUrl ? h('a', { href: p.websiteUrl, target: '_blank', rel: 'noopener noreferrer', class: 'btn' }, '🌐 Open website link') : null,
+        p.websiteUrl ? h('a', { href: p.websiteUrl, target: '_blank', rel: 'noopener noreferrer', class: 'small' }, '🌐 Open product link') : null,
         h('div', { class: 'row' }, h('b', { style: 'color:var(--c);font-size:20px' }, rupees(p.price)), h('span', { class: p.available <= 3 ? 'err' : 'muted' }, p.available + ' in stock • ' + p.sold + ' sold')),
         h('div', { class: 'gap' },
           h('button', { class: 'btn primary', onclick: () => keysModal(p) }, '🔑 Keys'),
-          h('button', { class: 'btn', onclick: async () => { const form = await productForm(p, () => { ov.close(); productsView(); }); const ov = modal(h('h3', { style: 'margin:0' }, 'Edit product'), ...form); } }, 'Edit'),
+          h('button', { class: 'btn', onclick: () => { const ov = modal(h('h3', { style: 'margin:0' }, 'Edit product'), ...productForm(p, () => { ov.close(); productsView(); })); } }, 'Edit'),
           h('button', { class: 'btn', onclick: async () => { try { await api('PUT', '/api/admin/products/' + p.id, { active: !p.active }); productsView(); } catch (e) { toast(e.message); } } }, p.active ? 'Hide' : 'Show'),
           h('button', { class: 'btn danger', onclick: async () => { if (!confirm('Delete "' + p.name + '"? Unsold keys will be removed. Past orders are kept.')) return; try { await api('DELETE', '/api/admin/products/' + p.id); productsView(); } catch (e) { toast(e.message); } } }, 'Delete')))) :
         [h('p', { class: 'muted' }, 'No products yet. Tap "New product" to start.')]))));
@@ -346,18 +368,7 @@ async function userModal(id) {
       h('div', { class: 'card stack' }, h('h3', {}, 'Adjust wallet'), amt, note, adj),
       h('div', { class: 'gap' },
         h('button', { class: 'btn ' + (u.banned ? 'primary' : 'danger'), onclick: async () => { try { await api('POST', '/api/admin/users/' + id + '/ban', { banned: !u.banned }); toast(u.banned ? 'Unblocked' : 'Blocked'); paint(); } catch (e) { toast(e.message); } } }, u.banned ? 'Unblock user' : 'Block user'),
-        h('button', { class: 'btn primary', onclick: async () => {
-          if (!confirm('Generate a new temporary password for ' + u.username + '? Their current sessions will be logged out.')) return;
-          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-          const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
-          const pw = Array.from(bytes, b => chars[b % chars.length]).join('');
-          try {
-            await api('POST', '/api/admin/users/' + id + '/password', { password: pw });
-            prompt('New password for ' + u.username + ' — copy it now and share it securely. It cannot be viewed again:', pw);
-            toast('Password reset. User sessions logged out.');
-          } catch (e) { toast(e.message); }
-        } }, 'Generate new password'),
-        h('button', { class: 'btn', onclick: async () => { const pw = prompt('Set a new password for ' + u.username + ' (min 6 characters):'); if (!pw) return; try { await api('POST', '/api/admin/users/' + id + '/password', { password: pw }); toast('Password updated; user sessions logged out'); } catch (e) { toast(e.message); } } }, 'Set password manually')),
+        h('button', { class: 'btn', onclick: async () => { if (!confirm('Generate a temporary password for ' + u.username + '? Their current sessions will be logged out.')) return; try { const r = await api('POST', '/api/admin/users/' + id + '/password', { generate: true }); const result = modal(h('h3', {}, 'Temporary password'), h('p', { class: 'muted' }, 'Copy this now and share it securely. It will not be shown again.'), h('div', { class: 'key' }, r.temporaryPassword), h('button', { class: 'btn primary full', onclick: () => copyText(r.temporaryPassword) }, 'Copy password'), h('button', { class: 'btn full', onclick: () => result.close() }, 'Done')); toast('Password reset'); } catch (e) { toast(e.message); } } }, 'Generate password')),
       h('h3', { style: 'margin:4px 0 0' }, 'Recent orders'),
       ...(u.orders.length ? u.orders.slice(0, 10).map((o) => h('div', { class: 'row small' }, h('span', {}, o.product + ' • ' + rupees(o.paid)), h('span', { class: 'muted' }, o.status + ' • ' + when(o.createdAt)))) : [h('div', { class: 'muted' }, 'None')]),
       h('h3', { style: 'margin:4px 0 0' }, 'Wallet history'),
@@ -404,25 +415,7 @@ async function paymentsView() {
       ...(ps.length ? ps.map((p) => h('div', { class: 'card stack' },
         h('div', { class: 'row' }, h('b', {}, '👤 ' + p.username + ' • ' + rupees(p.amount)), statusTag(p.status)),
         h('div', { class: 'row small muted' }, h('span', {}, p.gateway), h('span', {}, when(p.createdAt))),
-        p.status !== 'paid' ? h('div', {}, h('button', { class: 'btn primary', onclick: async () => { if (!confirm('Credit ' + rupees(p.amount) + ' to ' + p.username + '? Only do this if you saw the money arrive.')) return; try { await api('POST', '/api/admin/payments/' + p.id + '/approve'); toast('Credited'); paymentsView(); } catch (e) { toast(e.message); } } }, 'Approve & credit')) : null)) : [h('p', { class: 'muted' }, 'No payments yet.')])));
-  } catch (e) { view.replaceChildren(errBox(e)); }
-}
-
-// ---------- referrals ----------
-async function referralsView() {
-  view.replaceChildren(busy());
-  try {
-    const r = await api('GET', '/api/admin/referrals');
-    view.replaceChildren(h('div', { class: 'stack' },
-      h('div', { class: 'tiles' }, tile('Total referrals', r.total), tile('Rewards paid', r.rewarded, 'green'), tile('Pending', r.pending, 'violet'), tile('Total paid', rupees(r.paidTotal), 'pink')),
-      h('div', { class: 'card stack' }, h('h3', {}, '🎁 Referral program'), h('p', { class: 'muted small' }, 'Set the reward for new referrals. This amount applies to referrals created after saving; existing referrals keep their original reward.'),
-        h('label', {}, 'Reward per successful referral (₹)'),
-        (() => { const amount = h('input', { type: 'number', min: '0', max: '10000', step: '1', value: String(r.reward) }); const btn = h('button', { class: 'btn primary full' }, 'Save reward amount'); btn.addEventListener('click', async () => { btn.disabled = true; try { await api('PUT', '/api/admin/settings', { referralReward: Number(amount.value) }); toast('Referral reward saved'); referralsView(); } catch (e) { toast(e.message); btn.disabled = false; } }); return h('div', { class: 'stack' }, amount, btn); })()),
-      h('div', { class: 'card stack' }, h('h3', {}, 'Referral records'),
-        ...(r.referrals.length ? r.referrals.map((x) => h('div', { class: 'card stack' },
-          h('div', { class: 'row' }, h('b', {}, x.referrer + ' → ' + x.referred), statusTag(x.status === 'rewarded' ? 'paid' : 'pending')),
-          h('div', { class: 'row small muted' }, h('span', {}, 'Code: ' + x.code), h('span', {}, when(x.createdAt))),
-          h('div', { class: 'row' }, h('span', { class: 'muted' }, x.rewardedAt ? 'Rewarded ' + when(x.rewardedAt) : 'Waiting for first purchase'), h('b', { style: 'color:var(--c)' }, rupees(x.reward))))) : [h('p', { class: 'muted' }, 'No referrals yet.')] ))));
+        p.status === 'pending' ? h('div', {}, h('button', { class: 'btn primary', onclick: async () => { if (!confirm('Credit ' + rupees(p.amount) + ' to ' + p.username + '? Only do this if you saw the money arrive.')) return; try { await api('POST', '/api/admin/payments/' + p.id + '/approve'); toast('Credited'); paymentsView(); } catch (e) { toast(e.message); } } }, 'Approve & credit')) : null)) : [h('p', { class: 'muted' }, 'No payments yet.')])));
   } catch (e) { view.replaceChildren(errBox(e)); }
 }
 
@@ -438,23 +431,22 @@ async function settingsView() {
       supportText: h('input', { value: s.supportText, maxlength: '40' }),
       minTopup: h('input', { value: String(s.minTopup), inputmode: 'numeric' }),
       maxTopup: h('input', { value: String(s.maxTopup), inputmode: 'numeric' }),
-      referralReward: h('input', { value: String(s.referralReward ?? 10), inputmode: 'decimal', type: 'number', min: '0', max: '10000' }),
-      maintenanceMode: h('select', {}, h('option', { value: 'false' }, 'WORKING — Shop open'), h('option', { value: 'true' }, 'MAINTENANCE — Shop closed')),
+      referralReward: h('input', { value: String(s.referralReward), inputmode: 'decimal' }),
       maintenanceMessage: h('input', { value: s.maintenanceMessage || 'We are under maintenance. Please check back soon.', maxlength: '300' }),
     };
-    f.maintenanceMode.value = s.maintenanceMode ? 'true' : 'false';
     const save = h('button', { class: 'btn primary full' }, 'Save settings');
     save.addEventListener('click', async () => {
       save.disabled = true;
-      try { await api('PUT', '/api/admin/settings', { siteName: f.siteName.value, announcement: f.announcement.value, supportLink: f.supportLink.value, supportText: f.supportText.value, minTopup: Number(f.minTopup.value), maxTopup: Number(f.maxTopup.value), referralReward: Number(f.referralReward.value), maintenanceMode: f.maintenanceMode.value === 'true', maintenanceMessage: f.maintenanceMessage.value }); toast('Saved'); }
+      try { await api('PUT', '/api/admin/settings', { siteName: f.siteName.value, announcement: f.announcement.value, supportLink: f.supportLink.value, supportText: f.supportText.value, minTopup: Number(f.minTopup.value), maxTopup: Number(f.maxTopup.value), referralReward: Number(f.referralReward.value), maintenanceMessage: f.maintenanceMessage.value, maintenanceMode: maintenance.checked }); toast('Saved'); }
       catch (e) { toast(e.message); }
       save.disabled = false;
     });
+    const maintenance = h('input', { type: 'checkbox' }); maintenance.checked = !!s.maintenanceMode; maintenance.style.width = '22px';
     const field = (label, el) => h('div', {}, h('label', {}, label), el);
     view.replaceChildren(h('div', { class: 'stack' },
       h('div', { class: 'card stack' }, h('h3', {}, 'Shop'), field('Shop name', f.siteName), field('Announcement banner', f.announcement), field('Support link', f.supportLink), field('Support button text', f.supportText),
-        h('div', { class: 'gap' }, h('div', { style: 'flex:1;min-width:120px' }, field('Min top-up ₹', f.minTopup)), h('div', { style: 'flex:1;min-width:120px' }, field('Max top-up ₹', f.maxTopup))), field('Referral reward ₹ (new referrals)', f.referralReward), save),
-      h('div', { class: 'card stack' }, h('h3', {}, '🚧 Shop availability'), h('p', { class: 'muted small' }, 'Maintenance mode makes every product appear out of stock and blocks purchases on the server, even when keys are available.'), field('Shop status', f.maintenanceMode), field('Maintenance message shown to users', f.maintenanceMessage), h('button', { class: 'btn primary full', onclick: async () => { try { await api('PUT', '/api/admin/settings', { maintenanceMode: f.maintenanceMode.value === 'true', maintenanceMessage: f.maintenanceMessage.value }); toast('Shop status saved'); settingsView(); } catch (e) { toast(e.message); } } }, 'Save shop status')),
+        h('div', { class: 'gap' }, h('div', { style: 'flex:1;min-width:120px' }, field('Min top-up ₹', f.minTopup)), h('div', { style: 'flex:1;min-width:120px' }, field('Max top-up ₹', f.maxTopup))), field('Referral reward per eligible first purchase (₹)', f.referralReward), save),
+      h('div', { class: 'card stack' }, h('h3', {}, 'Store availability'), h('div', { class: 'row' }, h('div', {}, h('b', {}, 'Maintenance mode'), h('div', { class: 'small muted' }, 'When enabled, the shop shows maintenance and all products appear sold out. Purchases are blocked server-side.')), maintenance), field('Maintenance message', f.maintenanceMessage), h('button', { class: 'btn primary full', onclick: async () => { try { await api('PUT', '/api/admin/settings', { maintenanceMode: maintenance.checked, maintenanceMessage: f.maintenanceMessage.value }); toast('Availability settings saved'); } catch (e) { toast(e.message); } } }, 'Save availability')), 
       h('div', { class: 'card stack' }, h('h3', {}, 'System'),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Payment gateway'), h('b', {}, s.gateway === 'mock' ? 'Test mode (mock)' : s.gateway)),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Data storage'), h('b', {}, s.storage)))));
