@@ -1104,6 +1104,29 @@ route('GET', '/api/admin/settings', A, () => ({
   storage: REMOTE_URL ? 'Upstash (durable)' : 'Local file (resets on free hosting)',
 }));
 
+route('POST', '/api/admin/notify', A, async ({ body }) => {
+  const title = String(body.title || '').trim().slice(0, 100);
+  const message = String(body.message || '').trim().slice(0, 300);
+  if (!title || !message) fail(400, 'Title and message required');
+  if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) fail(500, 'OneSignal not configured');
+  const res = await fetch('https://api.onesignal.com/notifications', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`
+    },
+    body: JSON.stringify({
+      app_id: process.env.ONESIGNAL_APP_ID,
+      headings: { en: title },
+      contents: { en: message },
+      included_segments: ['All']
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) fail(502, data.errors?.[0] || 'OneSignal error');
+  return { ok: true, recipients: data.recipients || 0 };
+});
+
 route('PUT', '/api/admin/settings', A, ({ body }) => {
   const s = db.settings;
   if (body.siteName !== undefined) s.siteName = String(body.siteName).trim().slice(0, 40) || 'Key Store';

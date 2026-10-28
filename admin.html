@@ -447,6 +447,16 @@ async function settingsView() {
       h('div', { class: 'card stack' }, h('h3', {}, 'Shop'), field('Shop name', f.siteName), field('Announcement banner', f.announcement), field('Support link', f.supportLink), field('Support button text', f.supportText),
         h('div', { class: 'gap' }, h('div', { style: 'flex:1;min-width:120px' }, field('Min top-up ₹', f.minTopup)), h('div', { style: 'flex:1;min-width:120px' }, field('Max top-up ₹', f.maxTopup))), field('Referral reward per eligible first purchase (₹)', f.referralReward), save),
       h('div', { class: 'card stack' }, h('h3', {}, 'Store availability'), h('div', { class: 'row' }, h('div', {}, h('b', {}, 'Maintenance mode'), h('div', { class: 'small muted' }, 'When enabled, the shop shows maintenance and all products appear sold out. Purchases are blocked server-side.')), maintenance), field('Maintenance message', f.maintenanceMessage), h('button', { class: 'btn primary full', onclick: async () => { try { await api('PUT', '/api/admin/settings', { maintenanceMode: maintenance.checked, maintenanceMessage: f.maintenanceMessage.value }); toast('Availability settings saved'); } catch (e) { toast(e.message); } } }, 'Save availability')), 
+      h('div', { class: 'card stack' }, h('h3', {}, '📢 Send Notification'),
+        h('input', { id: 'ntitle', placeholder: 'Title (e.g. New keys available)' }),
+        h('textarea', { id: 'nmsg', rows: '3', placeholder: 'Message to all subscribed users' }),
+        h('button', { class: 'btn primary full', onclick: async () => {
+          const title = document.getElementById('ntitle').value;
+          const message = document.getElementById('nmsg').value;
+          try { const r = await api('POST', '/api/admin/notify', { title, message }); toast('Sent to ' + (r.recipients || 'users')); }
+          catch (e) { toast(e.message); }
+        } }, 'Send to all users')),
+      h('div', { class: 'card stack' }, h('h3', {}, 'System'),
       h('div', { class: 'card stack' }, h('h3', {}, 'System'),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Payment gateway'), h('b', {}, s.gateway === 'mock' ? 'Test mode (mock)' : s.gateway)),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Data storage'), h('b', {}, s.storage)))));
