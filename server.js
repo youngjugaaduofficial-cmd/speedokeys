@@ -216,23 +216,50 @@ const gateways = {
     async create(payment, ctx) {
       // ZapUPI wants a short alphanumeric id (like ORD12345), not a UUID with hyphens.
       const zapOrderId = 'ORD' + payment.id.replace(/-/g, '').slice(0, 16).toUpperCase();
-      const r = await fetch('https://pay.zapupi.com/api/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          zap_key: ZAP_KEY,
-          order_id: zapOrderId,
-          amount: payment.amountPaise / 100,
-          success_url: ctx.returnUrl,
-          failed_url: ctx.returnUrl,
-        }),
-      });
-      const j = await r.json().catch(() => ({}));
-      console.log('zapupi create-order response:', JSON.stringify(j)); // never contains our key
-      if (!r.ok) throw new Error('ZapUPI HTTP ' + r.status);
+      let r;
+      try {
+        r = await fetch('https://pay.zapupi.com/api/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            zap_key: ZAP_KEY,
+            order_id: zapOrderId,
+            amount: payment.amountPaise / 100,
+            success_url: ctx.returnUrl,
+            failed_url: ctx.returnUrl,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+      } catch (e) {
+        // Do not auto-retry: a timeout may happen after ZapUPI created the order,
+        // so retrying could create duplicate orders.
+        const causeCode = e && e.cause && e.cause.code ? String(e.cause.code) : '';
+        const detail = causeCode || (e && e.name === 'TimeoutError' ? 'TIMEOUT' : (e && e.name) || 'NETWORK_ERROR');
+        console.error('ZapUPI create-order network error:', detail, e && e.message ? e.message : '');
+        throw new Error('ZapUPI network request failed (' + detail + '). Check gateway availability and Render outbound network.');
+      }
+
+      const responseText = await r.text();
+      let j = {};
+      try {
+        j = responseText ? JSON.parse(responseText) : {};
+      } catch (_) {
+        console.error('ZapUPI returned non-JSON response; HTTP', r.status);
+        throw new Error('ZapUPI returned an invalid response (HTTP ' + r.status + ')');
+      }
+      if (!r.ok) {
+        console.error('ZapUPI create-order HTTP error:', r.status, 'response fields:', Object.keys(j || {}).join(','));
+        throw new Error('ZapUPI HTTP ' + r.status);
+      }
       const d = j.data || j;
       const payUrl = d.payment_url || d.payUrl || d.pay_url || d.url || d.link || null;
-      if (!payUrl) throw new Error('ZapUPI response had no payment URL, check the log above');
+      console.log('ZapUPI create-order result:', JSON.stringify({
+        status: j.status || d.status || 'unknown',
+        orderCreated: !!payUrl,
+        httpStatus: r.status,
+        orderId: zapOrderId,
+      }));
+      if (!payUrl) throw new Error('ZapUPI response had no payment URL (HTTP ' + r.status + ')');
       return { ref: zapOrderId, payUrl };
     },
     async check() {
