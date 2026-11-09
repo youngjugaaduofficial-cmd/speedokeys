@@ -50,7 +50,13 @@ const emptyDb = () => ({
     supportText: 'Contact support',
     minTopupPaise: 1000,
     maxTopupPaise: 1000000,
+    theme: 'neon',
+    accent: '',
+    popup: '',
+    popupActive: false,
+    bannerSeconds: 5,
   },
+  banners: [],
   users: [],
   products: [],
   categories: [],
@@ -395,7 +401,7 @@ const server = http.createServer(async (req, res) => {
     if (matched.opts.auth === 'user') user = authUser(req);
     if (matched.opts.auth === 'admin') authAdmin(req);
 
-    const raw = req.method === 'GET' || req.method === 'DELETE' ? Buffer.alloc(0) : await readBody(req, 200 * 1024);
+    const raw = req.method === 'GET' || req.method === 'DELETE' ? Buffer.alloc(0) : await readBody(req, 420 * 1024);
     let body = {};
     if (!matched.opts.raw && raw.length) {
       try {
@@ -433,7 +439,15 @@ route('GET', '/api/config', () => ({
   testMode: MOCK_MODE,
   maintenanceMode: !!db.settings.maintenanceMode,
   maintenanceMessage: db.settings.maintenanceMessage || 'We are under maintenance. Please check back soon.',
+  theme: db.settings.theme || 'neon',
+  accent: db.settings.accent || '',
+  popup: db.settings.popupActive ? db.settings.popup || '' : '',
+  bannerSeconds: db.settings.bannerSeconds || 5,
 }));
+
+route('GET', '/api/banners', () =>
+  (db.banners || []).filter((b) => b.active).sort((a, b) => a.order - b.order).map((b) => ({ id: b.id, image: b.image, link: b.link || '', title: b.title || '' }))
+);
 
 route('GET', '/api/products', () =>
   db.products
@@ -1100,6 +1114,11 @@ route('GET', '/api/admin/settings', A, () => ({
   referralReward: rupees(db.settings.referralRewardPaise === undefined ? 10 : db.settings.referralRewardPaise / 100),
   minTopup: rupees(db.settings.minTopupPaise),
   maxTopup: rupees(db.settings.maxTopupPaise),
+  theme: db.settings.theme || 'neon',
+  accent: db.settings.accent || '',
+  popup: db.settings.popup || '',
+  popupActive: !!db.settings.popupActive,
+  bannerSeconds: db.settings.bannerSeconds || 5,
   gateway: GATEWAY,
   storage: REMOTE_URL ? 'Upstash (durable)' : 'Local file (resets on free hosting)',
 }));
@@ -1140,10 +1159,76 @@ route('PUT', '/api/admin/settings', A, ({ body }) => {
     if (link && !/^https?:\/\//i.test(link)) fail(400, 'Support link must start with http:// or https://');
     s.supportLink = link.slice(0, 200);
   }
+  if (body.theme !== undefined) { if (!['neon', 'ocean', 'sunset', 'emerald', 'royal', 'light'].includes(body.theme)) fail(400, 'Unknown theme'); s.theme = body.theme; }
+  if (body.accent !== undefined) { const a = String(body.accent).trim(); if (a && !/^#[0-9a-fA-F]{6}$/.test(a)) fail(400, 'Accent must look like #b6ff3c'); s.accent = a; }
+  if (body.popup !== undefined) s.popup = String(body.popup).trim().slice(0, 300);
+  if (body.popupActive !== undefined) s.popupActive = body.popupActive === true || body.popupActive === 'true';
+  if (body.bannerSeconds !== undefined) s.bannerSeconds = Math.max(2, Math.min(15, Math.round(Number(body.bannerSeconds)) || 5));
   if (body.minTopup !== undefined) s.minTopupPaise = Math.max(100, Math.round(Number(body.minTopup) * 100) || 1000);
   if (body.maxTopup !== undefined) s.maxTopupPaise = Math.max(s.minTopupPaise, Math.round(Number(body.maxTopup) * 100) || 1000000);
   save();
   return { ok: true };
+});
+
+// ----- banners (home slider) -----
+function readBanner(body, partial) {
+  const f = {};
+  if (!partial || body.image !== undefined) {
+    const img = String(body.image || '');
+    if (!/^https:\/\//i.test(img) && !/^data:image\/(png|jpeg|webp);base64,/i.test(img)) fail(400, 'Image must be an https link or an uploaded png/jpg/webp');
+    if (img.length > 330000) fail(400, 'Image too large. Use a smaller image or an https link.');
+    f.image = img;
+  }
+  if (body.link !== undefined) {
+    const l = String(body.link).trim();
+    if (l && !/^https?:\/\//i.test(l)) fail(400, 'Link must start with http:// or https://');
+    f.link = l.slice(0, 300);
+  }
+  if (body.title !== undefined) f.title = String(body.title).trim().slice(0, 80);
+  if (body.active !== undefined) f.active = body.active === true || body.active === 'true';
+  return f;
+}
+route('GET', '/api/admin/banners', A, () => (db.banners || []).slice().sort((a, b) => a.order - b.order));
+route('POST', '/api/admin/banners', A, ({ body }) => {
+  if ((db.banners || []).length >= 8) fail(400, 'Maximum 8 banners');
+  const b = { id: uid(), link: '', title: '', active: true, createdAt: now(), order: Date.now(), ...readBanner(body, false) };
+  db.banners.push(b);
+  save();
+  return reply(201, { id: b.id });
+});
+route('PUT', '/api/admin/banners/:id', A, ({ params, body }) => {
+  const b = db.banners.find((x) => x.id === params.id);
+  if (!b) fail(404, 'Not found');
+  Object.assign(b, readBanner(body, true));
+  if (body.move === 'up' || body.move === 'down') {
+    const l = db.banners.slice().sort((x, y) => x.order - y.order);
+    const i = l.indexOf(b), j = body.move === 'up' ? i - 1 : i + 1;
+    if (l[j]) { const t = b.order; b.order = l[j].order; l[j].order = t; }
+  }
+  save();
+  return { ok: true };
+});
+route('DELETE', '/api/admin/banners/:id', A, ({ params }) => {
+  const i = db.banners.findIndex((x) => x.id === params.id);
+  if (i < 0) fail(404, 'Not found');
+  db.banners.splice(i, 1);
+  save();
+  return { ok: true };
+});
+
+// ----- extra admin tools -----
+route('GET', '/api/admin/users.csv', A, ({ res }) => {
+  const lines = [['Joined', 'Username', 'Balance (INR)', 'Orders', 'Banned'].map(csvCell).join(',')];
+  for (const u of db.users) lines.push([new Date(u.createdAt).toISOString(), u.username, rupees(u.balancePaise), db.orders.filter((o) => o.userId === u.id).length, u.banned ? 'yes' : 'no'].map(csvCell).join(','));
+  res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="users.csv"' });
+  res.end(lines.join('\n'));
+  return { __raw: true };
+});
+route('GET', '/api/admin/backup', A, ({ res }) => {
+  const copy = { ...db, users: db.users.map((u) => ({ ...u, passHash: undefined })) };
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="keystore-backup-' + istDay(now()) + '.json"' });
+  res.end(JSON.stringify(copy));
+  return { __raw: true };
 });
 
 // ======================================================================
