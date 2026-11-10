@@ -167,6 +167,23 @@ input:focus,select:focus,textarea:focus { border-color:#ddd!important; box-shado
 .modal { background:#111!important; border-color:#444!important; }
 a { color:#eee; }
 
+
+  /* ADMIN MONOCHROME SYSTEM: strict black / white / neutral grey */
+  :root { --bg:#080808; --panel:#111; --panel2:#181818; --line:#333; --ink:#f5f5f5; --muted:#aaa; --v:#fff; --c:#ddd; --p:#fff; --ok:#ddd; --err:#fff; --warn:#bbb; }
+  body { background:#080808!important; color:#f5f5f5!important; }
+  header,.topbar,.sb-h { background:#090909!important; border-color:#333!important; }
+  .card,.tile,.panel,.modal { background:#141414!important; border:1px solid #333!important; box-shadow:none!important; }
+  .btn.primary,.sb-i.on,.tabs button.on { background:#f5f5f5!important; color:#090909!important; border-color:#f5f5f5!important; box-shadow:none!important; }
+  .btn,.ib,.sb-i,.tabs button { background:#151515!important; color:#eee!important; border-color:#444!important; }
+  input,select,textarea { background:#090909!important; color:#fff!important; border-color:#444!important; }
+  .logo { color:#fff!important; background:none!important; -webkit-text-fill-color:#fff!important; }
+  .tag,.chipb { color:#eee!important; border-color:#555!important; background:#191919!important; }
+  .muted,.small { color:#aaa!important; }
+  .err,.danger { color:#fff!important; }
+
+/* SPEEDO KEYS ADMIN UX POLISH — monochrome only */
+html{scroll-behavior:smooth;scroll-padding-top:76px}#ptitle{font-size:clamp(15px,2vw,19px);letter-spacing:.2px}.topbar{min-height:62px;padding-top:calc(10px + env(safe-area-inset-top))}#view{max-width:1180px;padding-top:22px}#view>*{animation:adminIn .28s cubic-bezier(.16,1,.3,1) both}@keyframes adminIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}.card,.tile{border-radius:13px!important;transition:border-color .18s,transform .18s;background:#121212!important}.card:hover,.tile:hover{border-color:#666!important;transform:translateY(-1px)}.btn,.ib,.sb-i,.tabs button{transition:background .18s,color .18s,border-color .18s,transform .15s}.btn:active,.ib:active{transform:scale(.98)}input,select,textarea{border-radius:9px!important;min-height:44px}label{letter-spacing:.8px;font-weight:700}.row{row-gap:8px}.sb-i{border-radius:9px!important;min-height:46px}.sb-i.on{background:#eee!important;color:#090909!important}.sb-i.on svg{color:#090909!important}#toast{border-radius:9px!important}@media(min-width:960px){#view{padding:28px 28px 64px}.topbar{padding-left:28px;padding-right:28px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}#view>*{animation:none!important}}
+
 </style>
 </head>
 <body>
@@ -245,6 +262,7 @@ const NAV = [
   ['Sales', [['orders', 'Orders', 'receipt'], ['payments', 'Payments', 'card'], ['coupons', 'Coupons', 'tag']]],
   ['People', [['users', 'Users', 'users'], ['tickets', 'Support tickets', 'chat'], ['reviews', 'Reviews', 'star']]],
   ['Engage', [['notices', 'Notices & push', 'bell'], ['growth', 'Growth & limits', 'rocket']]],
+  ['Growth & Operations', [['operations','Operations Center','chart'],['suppliers','Suppliers','users'],['affiliates','Affiliates','rocket'],['seo','SEO Manager','search'],['gifts','Gift Orders','card'],['loyalty','Loyalty','star'],['bundles','Bundles','game'],['advanced','Advanced Analytics','chart'],['community','Community','chat']]],
   ['System', [['look', 'Appearance', 'palette'], ['security', 'Security & system', 'shield'], ['activity', 'Activity log', 'list'], ['settings', 'Settings', 'gear']]],
 ];
 const TITLES = Object.fromEntries(NAV.flatMap(([, l]) => l.map(([k, t]) => [k, t])));
@@ -291,9 +309,63 @@ function draw() {
   lv.style.display = 'none'; shell.style.display = 'block';
   document.getElementById('ptitle').textContent = TITLES[tab] || '';
   paintNav(); refreshBadges(); shopChip();
-  ({ dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView, activity: activityView, tickets: ticketsView, reviews: reviewsView, notices: noticesView, growth: growthView, security: securityView })[tab]();
+  ({ dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView, activity: activityView, tickets: ticketsView, reviews: reviewsView, notices: noticesView, growth: growthView, security: securityView })[tab] ? ({ dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView, activity: activityView, tickets: ticketsView, reviews: reviewsView, notices: noticesView, growth: growthView, security: securityView })[tab]() : moduleView(tab);
 }
 setInterval(refreshBadges, 30000);
+
+// ---------- Next-level modules ----------
+async function moduleView(which) {
+  view.replaceChildren(busy());
+  const field = (p,type='text') => h('input',{placeholder:p,type});
+  const area = p => h('textarea',{class:'ta',placeholder:p});
+  const btn = (t,fn) => h('button',{class:'btn primary',onclick:fn},t);
+  const card = (t,...kids) => h('div',{class:'card stack'},h('h3',{},t),...kids);
+  const row = (...kids) => h('div',{class:'row',style:'gap:8px;flex-wrap:wrap'},...kids);
+  const empty = () => h('p',{class:'muted'},'No records yet.');
+  try {
+    if (which === 'operations') {
+      const r=await api('GET','/api/admin/operations');
+      const title=field('Incident title'), detail=area('Incident details'), sev=h('select',{},...['low','medium','high'].map(x=>h('option',{value:x},x)));
+      const incidents=r.incidents.length?r.incidents.map(x=>row(h('b',{},x.title),x.severity+' • '+x.status,x.status==='open'?btn('Resolve',async()=>{await api('POST','/api/admin/operations/incidents/'+x.id+'/resolve',{});moduleView(which)}):null)): [empty()];
+      view.replaceChildren(h('div',{class:'stack'},card('System health',row('Status: '+r.health,'Storage: '+r.storage),row('Pending payments: '+r.payments.pending,'Failed: '+r.payments.failed),row('Available keys: '+r.inventory.available,'Sold: '+r.inventory.sold),row('Completed orders: '+r.orders.completed)),card('Log incident',title,detail,sev,btn('Create incident',async()=>{try{await api('POST','/api/admin/operations/incidents',{title:title.value,detail:detail.value,severity:sev.value});moduleView(which)}catch(e){toast(e.message)}})),card('Recent incidents',...incidents)));
+    } else if (which === 'suppliers') {
+      const [sup,batches,products]=await Promise.all([api('GET','/api/admin/suppliers'),api('GET','/api/admin/supplier-batches'),api('GET','/api/admin/products')]);
+      const n=field('Supplier name'),contact=field('Contact / phone'),email=field('Email'),notes=area('Notes');
+      const ssel=h('select',{},...sup.map(x=>h('option',{value:x.id},x.name))), psel=h('select',{},...products.map(x=>h('option',{value:x.id},x.name))), cost=field('Unit cost ₹','number'), ref=field('Invoice reference'), keys=area('One code per line');
+      const batchRows=batches.length?batches.map(x=>row(h('b',{},x.product),x.supplier,x.quantity+' codes',rupees(x.unitCostPaise/100),when(x.createdAt))):[empty()];
+      view.replaceChildren(h('div',{class:'stack'},card('Add supplier',n,contact,email,notes,btn('Save supplier',async()=>{try{await api('POST','/api/admin/suppliers',{name:n.value,contact:contact.value,email:email.value,notes:notes.value});moduleView(which)}catch(e){toast(e.message)}})),card('Receive stock batch',ssel,psel,cost,ref,keys,btn('Import codes',async()=>{try{await api('POST','/api/admin/supplier-batches',{supplierId:ssel.value,productId:psel.value,unitCost:cost.value,reference:ref.value,keys:keys.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)});moduleView(which)}catch(e){toast(e.message)}})),card('Purchase batches',...batchRows)));
+    } else if (which === 'affiliates') {
+      const [aff,pays]=await Promise.all([api('GET','/api/admin/affiliates'),api('GET','/api/admin/affiliate-payouts')]);
+      const name=field('Affiliate name'),code=field('Code optional'),rate=field('Commission %','number'), sel=h('select',{},...aff.map(x=>h('option',{value:x.id},x.name+' • '+x.code))),amount=field('Payout ₹','number'),reference=field('Transaction reference');
+      const arows=aff.length?aff.map(x=>row(h('b',{},x.name),x.code,x.rate+'%',x.clicks+' clicks',x.conversions+' conversions','Unpaid '+rupees(x.unpaidPaise/100))):[empty()];
+      const prows=pays.length?pays.map(x=>row(rupees(x.amountPaise/100),x.status,x.reference,when(x.createdAt))):[empty()];
+      view.replaceChildren(h('div',{class:'stack'},card('Create affiliate',name,code,rate,btn('Create affiliate',async()=>{try{await api('POST','/api/admin/affiliates',{name:name.value,code:code.value,rate:rate.value});moduleView(which)}catch(e){toast(e.message)}})),card('Performance',...arows),card('Record payout',sel,amount,reference,btn('Save payout record',async()=>{try{await api('POST','/api/admin/affiliate-payouts',{affiliateId:sel.value,amount:amount.value,reference:reference.value});moduleView(which)}catch(e){toast(e.message)}})),card('Payout history',...prows)));
+    } else if (which === 'seo') {
+      const pages=await api('GET','/api/admin/seo'),slug=field('Page slug'),title=field('SEO title'),desc=area('Meta description'),canonical=field('Canonical URL'),noindex=h('input',{type:'checkbox'});
+      const rows=Object.entries(pages).map(([k,v])=>row(h('b',{},k),v.title,v.noindex?'noindex':'index'));
+      view.replaceChildren(h('div',{class:'stack'},card('SEO metadata',slug,title,desc,canonical,row(noindex,'Noindex'),btn('Save page metadata',async()=>{try{await api('PUT','/api/admin/seo/'+encodeURIComponent(slug.value),{title:title.value,description:desc.value,canonical:canonical.value,noindex:noindex.checked});moduleView(which)}catch(e){toast(e.message)}})),card('Saved pages',...(rows.length?rows:[empty()])),card('Crawler files',h('a',{href:'/robots.txt',target:'_blank'},'robots.txt'),h('a',{href:'/sitemap.xml',target:'_blank'},'sitemap.xml'))));
+    } else if (which === 'gifts') {
+      const rows=await api('GET','/api/admin/gifts');
+      view.replaceChildren(card('Gift orders',...(rows.length?rows.map(x=>row(h('b',{},x.product),x.buyer+' → '+x.recipient,x.status,when(x.createdAt))):[empty()])));
+    } else if (which === 'loyalty') {
+      const r=await api('GET','/api/admin/loyalty'),rate=field('Points per ₹100','number'); rate.value=r.settings.earnPer100||0;
+      const rows=r.ledger.map(x=>row(x.userId.slice(0,8),x.points+' points',x.type,x.note,when(x.createdAt)));
+      view.replaceChildren(h('div',{class:'stack'},card('Reward rules',h('p',{class:'muted'},'Points are separate from wallet cash.'),rate,btn('Save earning rate',async()=>{try{await api('PUT','/api/admin/loyalty',{earnPer100:rate.value});toast('Rules saved')}catch(e){toast(e.message)}})),card('Reward ledger',...(rows.length?rows:[empty()]))));
+    } else if (which === 'bundles') {
+      const [bundles,products]=await Promise.all([api('GET','/api/admin/bundles'),api('GET','/api/admin/products')]);
+      const name=field('Bundle name'),desc=area('Description'),price=field('Bundle price ₹','number'),rows=[]; const picks=h('div',{class:'stack'});
+      const add=()=>{const sel=h('select',{},...products.map(p=>h('option',{value:p.id},p.name))),qty=field('Quantity','number');qty.value=1;rows.push({sel,qty});picks.append(row(sel,qty))}; add();add();
+      const current=bundles.length?bundles.map(x=>row(h('b',{},x.name),rupees(x.pricePaise/100),x.active?'Active':'Paused',btn(x.active?'Pause':'Activate',async()=>{await api('PUT','/api/admin/bundles/'+x.id,{active:!x.active});moduleView(which)}))):[empty()];
+      view.replaceChildren(h('div',{class:'stack'},card('Create bundle',name,desc,price,picks,btn('Add product',add),btn('Save bundle',async()=>{try{await api('POST','/api/admin/bundles',{name:name.value,description:desc.value,price:price.value,items:rows.map(x=>({productId:x.sel.value,quantity:x.qty.value}))});moduleView(which)}catch(e){toast(e.message)}})),card('Existing bundles',...current)));
+    } else if (which === 'advanced') {
+      const r=await api('GET','/api/admin/analytics/advanced?days=90');
+      view.replaceChildren(h('div',{class:'stack'},card('90-day customer intelligence',row('Orders: '+r.orders,'Customers: '+r.customers),row('Repeat customers: '+r.repeatCustomers,'Repeat rate: '+r.repeatRate+'%'),row('Average lifetime value: '+rupees(r.averageLifetimeValue))),card('Module performance',row('Gift orders: '+r.giftOrders,'Bundle orders: '+r.bundleOrders),row('Affiliate clicks: '+r.affiliate.clicks,'Commissions: '+r.affiliate.commissions),row('Community posts: '+r.community.posts,'Open reports: '+r.community.reportsOpen))));
+    } else if (which === 'community') {
+      const r=await api('GET','/api/admin/community'), reports=r.reports.length?r.reports.map(x=>row(x.reason,when(x.createdAt),btn('Resolve',async()=>{await api('POST','/api/admin/community/reports/'+x.id+'/resolve',{});moduleView(which)}))):[empty()], posts=r.posts.length?r.posts.map(x=>row(h('b',{},x.title),x.username,x.status,btn('Hide',async()=>{await api('POST','/api/admin/community/'+x.id+'/hide',{});moduleView(which)}))):[empty()];
+      view.replaceChildren(h('div',{class:'stack'},card('Open reports',...reports),card('Discussions',...posts)));
+    }
+  } catch(e) { view.replaceChildren(errBox(e)); }
+}
 
 // ---------- command search ----------
 function openSearch() {

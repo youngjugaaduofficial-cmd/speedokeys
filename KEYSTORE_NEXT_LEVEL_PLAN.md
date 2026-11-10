@@ -1,36 +1,29 @@
-# Key Store — Next-Level Hybrid Upgrade Plan
+# Key Store — Next-Level Hybrid Upgrade
 
-## Status
-This document is an implementation roadmap. These nine modules are NOT implemented in release 2.1.0.
+## Release 2.2.0 implementation status
+The nine requested modules now have backend APIs and Admin/customer UI entry points. Existing login, wallet, catalog, inventory, orders, coupons, referrals, support, reviews, notifications, settings, security and reporting are retained rather than duplicated.
+
+## Implemented modules
+1. Operations Center — live payment/order/stock/storage health and incident log.
+2. Supplier Management — supplier directory, stock batches, supplier references and per-code purchase cost history.
+3. Affiliate System — tracking links, attribution, purchase conversions, commission ledger and manually recorded payouts.
+4. SEO Manager — per-page title/description/canonical/noindex metadata, `robots.txt` and XML sitemap.
+5. Gift Purchase — wallet-funded gift orders, recipient account binding, message and recipient-only gift-code view.
+6. Loyalty — separate points ledger, earning rules and points-to-wallet-credit redemption (100 points = ₹1).
+7. Product Bundles — admin-configured bundles, stock validation, grouped code delivery and wallet debit.
+8. Advanced Analytics — repeat customer rate, lifetime value, affiliate/gift/bundle/community metrics.
+9. Gaming Community — discussions, replies, verified-purchase marker, reports and admin moderation.
+
+## Known scope limits
+- Gift delivery currently targets an existing store username; email/SMS dispatch and scheduled delivery are not configured.
+- Affiliate payout records are manual; no bank/UPI payout API is connected.
+- Loyalty conversion is a store wallet credit, not cash withdrawal.
+- Free hosting is for a low-traffic test/MVP. Configure remote persistent storage; do not use local JSON storage on an ephemeral free host.
+- Real payment settlement requires provider credentials, webhook configuration and end-to-end verification. Mock payment is test-only.
 
 ## Design
-- User panel: competitive esports style, graphite/near-black with restrained lime and orange accents; no purple gradients.
-- Admin panel: strictly monochrome black, white and grey; no colored accents or gradients.
+- Customer panel: competitive esports graphite design with restrained lime/orange accents.
+- Admin panel: strict black, white and neutral grey.
 
-## Planned modules
-1. Live Operations Center: order/payment/webhook/delivery/stock/server health, incidents and alerts.
-2. Supplier Management: supplier records, purchase batches, cost history and stock traceability.
-3. Affiliate System: tracked links, conversions, commission ledger, fraud checks and payout records.
-4. SEO & Landing Page Manager: metadata, canonical URLs, sitemap, robots and editable landing pages.
-5. Gift Purchase: recipient, gift message, scheduled delivery and redemption status.
-6. Loyalty & Cashback: separate reward ledger, earning/redemption rules, expiry and refund reversals.
-7. Product Bundles: bundle configuration, atomic stock reservation, individual item delivery and margin reporting.
-8. Advanced Analytics: retention, repeat purchases, customer lifetime value, conversion funnel and module profitability.
-9. Gaming Community: discussions, replies, reports, verified-purchase markers and moderation.
-
-## Implementation order
-- Phase 0: schema/API audit, baseline tests, backup and rollback plan.
-- Phase 1: operations monitoring and supplier/purchase-batch traceability.
-- Phase 2: affiliate attribution and SEO manager.
-- Phase 3: gifts, loyalty ledger and bundles with idempotent transactions.
-- Phase 4: advanced analytics and moderated community.
-- Phase 5: regression, accessibility, mobile and production-readiness verification.
-
-## Engineering constraints
-- Keep wallet money and loyalty points in separate ledgers.
-- Use idempotency for payment callbacks, affiliate commissions and reward grants.
-- Atomically reserve inventory for single-key and bundle purchases.
-- Never expose gift keys to unauthorized recipients.
-- Preserve supplier cost history by batch.
-- Sanitize community content and provide moderation/reporting controls.
-- Use persistent storage, secure secrets, verified payment webhooks and tested backups in production.
+## Validation
+Run `node preflight.js`, `node --check server.js`, `node --check test.js` and `npm test`.

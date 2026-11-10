@@ -23,16 +23,21 @@ const REMOTE_KEY = 'keystore_db_v2';
 // Optional: encrypts the whole database (keys, users, orders) at rest. Keep this value safe: without it the data cannot be read.
 const DB_ENC_KEY = process.env.DB_ENC_KEY ? crypto.createHash('sha256').update(process.env.DB_ENC_KEY).digest() : null;
 
-if (!ADMIN_PASSWORD || !JWT_SECRET) {
-  console.error('ADMIN_PASSWORD and JWT_SECRET must be set (see .env.example).');
+if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12 || !JWT_SECRET || Buffer.byteLength(JWT_SECRET) < 32) {
+  console.error('ADMIN_PASSWORD must be at least 12 characters and JWT_SECRET at least 32 bytes (see .env.example).');
   process.exit(1);
 }
 if (process.env.GATEWAY === 'zapupi' && !ZAP_KEY) {
   console.error('ZAPUPI_API_KEY (or ZAP_KEY) must be set when GATEWAY=zapupi.');
   process.exit(1);
 }
-if (process.env.GATEWAY === 'zapupi' && (process.env.ZAP_WEBHOOK_SECRET || '').length < 16) {
-  console.error('ZAP_WEBHOOK_SECRET (16+ random characters) must be set when GATEWAY=zapupi.');
+if (process.env.GATEWAY === 'zapupi' && (process.env.ZAP_WEBHOOK_SECRET || '').length < 32) {
+  console.error('ZAP_WEBHOOK_SECRET (32+ random characters) must be set when GATEWAY=zapupi.');
+  process.exit(1);
+}
+const ZAP_WEBHOOK_IPS = String(process.env.ZAP_WEBHOOK_IPS || process.env.ZAP_WEBHOOK_IP || '').split(',').map(x => x.trim()).filter(Boolean);
+if (process.env.GATEWAY === 'zapupi' && !ZAP_WEBHOOK_IPS.length) {
+  console.error('ZAP_WEBHOOK_IPS must contain the payment provider webhook source IP(s). Auto-credit is disabled without an allowlist.');
   process.exit(1);
 }
 if (REMOTE_URL && !REMOTE_TOKEN) {
@@ -85,6 +90,9 @@ const emptyDb = () => ({
   txns: [],
   coupons: [],
   referrals: [],
+  suppliers: [], supplierBatches: [], affiliates: [], affiliateEvents: [], affiliatePayouts: [],
+  gifts: [], loyaltyLedger: [], bundles: [], communityPosts: [], communityReports: [],
+  incidents: [], seoPages: {}, idempotency: [],
 });
 let db = emptyDb();
 
@@ -107,7 +115,9 @@ async function loadDb() {
   else if (fs.existsSync(DATA_FILE)) raw = fs.readFileSync(DATA_FILE, 'utf8');
   if (raw) {
     const parsed = JSON.parse(unpackDb(raw));
-    db = Object.assign(emptyDb(), parsed, { settings: Object.assign(emptyDb().settings, parsed.settings || {}), referrals: Array.isArray(parsed.referrals) ? parsed.referrals : [] });
+    db = Object.assign(emptyDb(), parsed, { settings: Object.assign(emptyDb().settings, { adminTv: 1 }, parsed.settings || {}), referrals: Array.isArray(parsed.referrals) ? parsed.referrals : [] });
+    for (const k of ['suppliers','supplierBatches','affiliates','affiliateEvents','affiliatePayouts','gifts','loyaltyLedger','bundles','communityPosts','communityReports','incidents','idempotency']) if (!Array.isArray(db[k])) db[k] = [];
+    if (!db.seoPages || typeof db.seoPages !== 'object') db.seoPages = {};
   }
   if (!['electric', 'ice', 'crimson', 'orange', 'white'].includes(db.settings.theme)) db.settings.theme = 'electric';
   // Backfill stable referral codes for accounts created before this feature.
@@ -443,14 +453,34 @@ function authUser(req) {
 function authAdmin(req) {
   const h = req.headers['authorization'] || '';
   const p = h.startsWith('Bearer ') ? readToken(h.slice(7)) : null;
-  if (!p || p.role !== 'admin') fail(401, 'Unauthorized');
+  if (!p || p.role !== 'admin' || p.tv !== (db.settings.adminTv || 1)) fail(401, 'Unauthorized');
 }
 
 const server = http.createServer(async (req, res) => {
+  // Apply baseline security headers to API, assets and HTML responses.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (req.socket.encrypted || (TRUST_PROXY && req.headers['x-forwarded-proto'] === 'https')) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   try {
     const url = new URL(req.url, 'http://localhost');
 
     if (req.method === 'GET' && PAGES[url.pathname]) return servePage(res, PAGES[url.pathname]);
+    // Serve SEO landing slugs with server-rendered metadata so crawlers do not depend on JS.
+    if (req.method === 'GET' && /^[a-z0-9-]{1,80}$/.test(url.pathname.slice(1)) && db.seoPages[url.pathname.slice(1)]) {
+      const meta = db.seoPages[url.pathname.slice(1)];
+      const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+      html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(meta.title)}</title>`)
+        .replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${esc(meta.description)}">`);
+      const canonical = meta.canonical || (PUBLIC_URL ? PUBLIC_URL + url.pathname : '');
+      if (canonical) html = html.replace('</head>', `<link rel="canonical" href="${esc(canonical)}"></head>`);
+      if (meta.noindex) html = html.replace('</head>', '<meta name="robots" content="noindex, nofollow"></head>');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(html);
+    }
     if (req.method === 'GET' && url.pathname === '/favicon.ico') {
       res.writeHead(204);
       return res.end();
@@ -465,14 +495,16 @@ const server = http.createServer(async (req, res) => {
       return res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#07080f"/><circle cx="190" cy="256" r="84" fill="none" stroke="' + (db.settings.accent || '#b6ff3c') + '" stroke-width="40"/><path d="M270 256h170M380 256v70M330 256v50" stroke="' + (db.settings.accent || '#b6ff3c') + '" stroke-width="40" stroke-linecap="round" fill="none"/></svg>');
     }
     if (req.method === 'GET' && url.pathname === '/sw.js') {
-      res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-cache' });
-      return res.end("const C='ks-v1';self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add('/')))});self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET'||u.origin!==location.origin||u.pathname.startsWith('/api/')||u.pathname.startsWith('/admin'))return;e.respondWith(fetch(e.request).then(r=>{const c=r.clone();caches.open(C).then(x=>x.put(e.request,c));return r}).catch(()=>caches.match(e.request).then(r=>r||caches.match('/'))))});");
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Service-Worker-Allowed': '/' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'sw.js')));
     }
     if (req.method === 'GET' && (url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml')) {
       const base = PUBLIC_URL || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
       if (url.pathname === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end(`User-agent: *\nDisallow: /admin\nDisallow: /api/\nSitemap: ${base}/sitemap.xml\n`); }
-      res.writeHead(200, { 'Content-Type': 'application/xml' });
-      return res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${['', '#/p/faq', '#/p/about', '#/p/terms', '#/p/privacy', '#/p/refund', '#/p/contact'].map((p) => `<url><loc>${base}/${p}</loc></url>`).join('')}</urlset>`);
+      const xml = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+      const paths = ['', ...Object.entries(db.seoPages || {}).filter(([, v]) => !v.noindex).map(([slug]) => encodeURIComponent(slug))];
+      res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+      return res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${paths.map((p) => `<url><loc>${xml(base + '/' + p)}</loc></url>`).join('')}</urlset>`);
     }
     let matched = null;
     const params = {};
@@ -582,7 +614,7 @@ route('POST', '/api/signup', async ({ body, ip }) => {
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
   if (!USERNAME_RX.test(username)) fail(400, 'Username must be 3 to 20 letters, numbers or _');
-  if (password.length < 6 || password.length > 100) fail(400, 'Password must be at least 6 characters');
+  if (password.length < 10 || password.length > 100) fail(400, 'Password must be at least 10 characters');
   if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'That username is taken');
   const rawCode = String(body.referralCode || '').trim().toUpperCase();
   let referrer = null;
@@ -646,7 +678,7 @@ route('POST', '/api/me/password', { auth: 'user' }, async ({ user, body }) => {
   limit('pw:' + user.id, 10, 15 * 60 * 1000);
   const next = String(body.next || '');
   if (!(await checkPassword(String(body.current || ''), user.passHash))) fail(400, 'Current password is wrong');
-  if (next.length < 6 || next.length > 100) fail(400, 'New password must be at least 6 characters');
+  if (next.length < 10 || next.length > 100) fail(400, 'New password must be at least 10 characters');
   user.passHash = await hashPassword(next);
   user.tv += 1; // logs out every other device
   save();
@@ -672,7 +704,10 @@ route('POST', '/api/coupon/check', { auth: 'user' }, ({ body }) => {
   return { discount: rupees(discountPaise), finalPrice: rupees(product.pricePaise - discountPaise) };
 });
 
-route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
+route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
+  const idem = String(body.idem || req.headers['idempotency-key'] || '').slice(0, 128);
+  const replay = getIdempotent('buy:' + user.id, idem, body);
+  if (replay) return replay;
   limit('buy:' + user.id, 30, 60 * 1000);
   limit('buyh:' + user.id, db.settings.maxBuysPerHour || 40, 3600 * 1000);
   if (db.settings.maintenanceMode) fail(503, db.settings.maintenanceMessage || 'Shop is under maintenance. Please try again later.');
@@ -703,10 +738,14 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
   key.status = 'sold';
   key.orderId = order.id;
   key.soldAt = now();
-  order.costPaise = product.costPaise || 0;
+  order.costPaise = key.unitCostPaise !== undefined ? key.unitCostPaise : (product.costPaise || 0);
   if (coupon) coupon.used += 1;
   addTxn(user, 'purchase', -price, product.name);
   db.orders.push(order);
+  const earnRate = Math.max(0, Math.min(100, Number((db.settings.loyalty || {}).earnPer100) || 0));
+  const earnedPoints = earnRate ? Math.floor(price / 10000 * earnRate) : 0;
+  if (earnedPoints) db.loyaltyLedger.push({ id: uid(), userId: user.id, points: earnedPoints, type: 'purchase', orderId: order.id, note: 'Purchase reward', createdAt: now() });
+  if (user.affiliateId) { const aff = db.affiliates.find(a => a.id === user.affiliateId && a.active); if (aff && !db.affiliateEvents.some(e => e.type === 'commission' && e.orderId === order.id)) { db.affiliateEvents.push({ id: uid(), affiliateId: aff.id, type: 'conversion', orderId: order.id, userId: user.id, createdAt: now() }); db.affiliateEvents.push({ id: uid(), affiliateId: aff.id, type: 'commission', orderId: order.id, userId: user.id, amountPaise: Math.floor(price * aff.rate / 100), status: 'pending', createdAt: now() }); } }
   // One reward per referred account, only after its first successful key purchase.
   const referral = db.referrals.find((r) => r.referredUserId === user.id && r.status === 'pending');
   if (referral && referral.referrerId !== user.id) {
@@ -719,8 +758,10 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body }) => {
       referral.rewardedAt = now();
     }
   }
+  const result = { orderId: order.id, product: product.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
+  storeIdempotent('buy:' + user.id, idem, body, result);
   save();
-  return { orderId: order.id, product: product.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
+  return result;
 });
 
 route('GET', '/api/orders', { auth: 'user' }, ({ user }) =>
@@ -821,15 +862,14 @@ route('POST', '/api/payments/:id/simulate', { auth: 'user' }, ({ user, params })
 // and strict matching of order id + amount. Credits a payment only once.
 route('POST', '/api/zapupi/webhook/:secret', { raw: true }, ({ params, raw, ip }) => {
   if (GATEWAY !== 'zapupi' || !safeEqual(params.secret, process.env.ZAP_WEBHOOK_SECRET || '')) fail(404, 'Not found');
-  const allowedIp = process.env.ZAP_WEBHOOK_IP;
-  if (allowedIp && ip !== allowedIp) {
-    console.warn('zapupi webhook: blocked IP', ip);
+  if (!ZAP_WEBHOOK_IPS.length || !ZAP_WEBHOOK_IPS.includes(String(ip || '').replace(/^::ffff:/, ''))) {
+    console.warn('zapupi webhook: blocked source IP', ip);
     fail(403, 'Forbidden');
   }
   const text = raw.toString('utf8');
   let data = {};
   try { data = JSON.parse(text); } catch (_) { data = Object.fromEntries(new URLSearchParams(text)); }
-  console.log('zapupi webhook from', ip, JSON.stringify(data));
+  console.log('zapupi webhook received from allowlisted source; fields:', Object.keys(data || {}).join(','));
 
   const pay = db.payments.find((p) => p.ref === String(data.order_id || '') && p.gateway === 'zapupi');
   if (!pay) return { ok: true }; // unknown order (e.g. dashboard "Test" button): acknowledge, do nothing
@@ -861,10 +901,11 @@ route('POST', '/api/admin/login', ({ body, ip }) => {
     if (!body.code) return reply(401, { error: 'Enter your 6-digit 2FA code', need2fa: true });
     if (!totpOk(db.settings.totpSecret, body.code)) fail(401, 'Wrong 2FA code');
   }
-  return { token: signToken({ role: 'admin' }, 12 * 3600) };
+  return { token: signToken({ role: 'admin', tv: db.settings.adminTv || 1 }, 12 * 3600) };
 });
 
 const A = { auth: 'admin' };
+route('POST', '/api/admin/logout-all', A, () => { db.settings.adminTv = (db.settings.adminTv || 1) + 1; save(); return { ok: true, message: 'All admin sessions revoked. Please sign in again.' }; });
 
 route('GET', '/api/admin/stats', A, () => {
   const done = db.orders.filter((o) => o.status === 'completed');
@@ -1544,8 +1585,22 @@ route('POST', '/api/admin/2fa/disable', A, ({ body }) => {
 // ======================================================================
 // Cart checkout, analytics, inventory, pages, offers, SEO
 // ======================================================================
-const idemCache = new Map();
-setInterval(() => { for (const [k, v] of idemCache) if (now() - v.at > 600000) idemCache.delete(k); }, 120000).unref();
+function idemHash(value) { return crypto.createHash('sha256').update(String(value)).digest('hex'); }
+function getIdempotent(scope, key, payload) {
+  if (!key || key.length < 8) return null;
+  const hash = idemHash(key), fingerprint = idemHash(JSON.stringify(payload || {}));
+  const row = db.idempotency.find(x => x.scope === scope && x.keyHash === hash && x.expiresAt > now());
+  if (!row) return null;
+  if (row.fingerprint !== fingerprint) fail(409, 'Idempotency key was already used for a different request');
+  return row.result;
+}
+function storeIdempotent(scope, key, payload, result) {
+  if (!key || key.length < 8) return;
+  const hash = idemHash(key), fingerprint = idemHash(JSON.stringify(payload || {}));
+  db.idempotency = db.idempotency.filter(x => x.expiresAt > now() && !(x.scope === scope && x.keyHash === hash));
+  db.idempotency.push({ scope, keyHash: hash, fingerprint, result, createdAt: now(), expiresAt: now() + 30 * 86400000 });
+}
+setInterval(() => { const n = db.idempotency.length; db.idempotency = db.idempotency.filter(x => x.expiresAt > now()); if (db.idempotency.length !== n) save(); }, 60 * 60 * 1000).unref();
 
 function cartLines(items) {
   if (!Array.isArray(items) || !items.length || items.length > 10) fail(400, 'Your cart is empty');
@@ -1567,13 +1622,13 @@ route('POST', '/api/coupon/cart', { auth: 'user' }, ({ body }) => {
   const { discountPaise } = couponDiscount(body.code, subtotal);
   return { subtotal: rupees(subtotal), discount: rupees(discountPaise), total: rupees(subtotal - discountPaise) };
 });
-route('POST', '/api/checkout', { auth: 'user' }, ({ user, body }) => {
+route('POST', '/api/checkout', { auth: 'user' }, ({ user, body, req }) => {
   limit('chk:' + user.id, 20, 60 * 1000);
   limit('buyh:' + user.id, db.settings.maxBuysPerHour || 40, 3600 * 1000);
   if (db.settings.maintenanceMode) fail(503, db.settings.maintenanceMessage || 'Shop is under maintenance. Please try again later.');
-  const idem = String(body.idem || '').slice(0, 64);
-  const ik = idem.length >= 8 ? user.id + ':' + idem : null;
-  if (ik && idemCache.has(ik)) return idemCache.get(ik).result; // repeated request: same answer, no second delivery
+  const idem = String(body.idem || req.headers['idempotency-key'] || '').slice(0, 128);
+  const replay = getIdempotent('checkout:' + user.id, idem, body);
+  if (replay) return replay;
   const { lines, subtotal } = cartLines(body.items);
   const { discountPaise, coupon } = couponDiscount(body.coupon, subtotal);
   const total = subtotal - discountPaise;
@@ -1585,9 +1640,13 @@ route('POST', '/api/checkout', { auth: 'user' }, ({ user, body }) => {
   const groupId = uid(), items = [];
   for (const u of units) {
     const key = db.keys.find((k) => k.productId === u.p.id && k.status === 'available');
-    const order = { id: uid(), groupId, userId: user.id, username: user.username, productId: u.p.id, productName: u.p.name, listPricePaise: u.p.pricePaise, pricePaise: Math.max(0, u.p.pricePaise - u.share), costPaise: u.p.costPaise || 0, couponCode: coupon ? coupon.code : null, keyId: key.id, status: 'completed', createdAt: now() };
+    const order = { id: uid(), groupId, userId: user.id, username: user.username, productId: u.p.id, productName: u.p.name, listPricePaise: u.p.pricePaise, pricePaise: Math.max(0, u.p.pricePaise - u.share), costPaise: key.unitCostPaise !== undefined ? key.unitCostPaise : (u.p.costPaise || 0), couponCode: coupon ? coupon.code : null, keyId: key.id, status: 'completed', createdAt: now() };
     key.status = 'sold'; key.orderId = order.id; key.soldAt = now();
     db.orders.push(order);
+    const earnRate = Math.max(0, Math.min(100, Number((db.settings.loyalty || {}).earnPer100) || 0));
+    const earnedPoints = earnRate ? Math.floor(order.pricePaise / 10000 * earnRate) : 0;
+    if (earnedPoints) db.loyaltyLedger.push({ id: uid(), userId: user.id, points: earnedPoints, type: 'purchase', orderId: order.id, note: 'Purchase reward', createdAt: now() });
+    if (user.affiliateId) { const aff = db.affiliates.find(a => a.id === user.affiliateId && a.active); if (aff && !db.affiliateEvents.some(e => e.type === 'commission' && e.orderId === order.id)) { db.affiliateEvents.push({ id: uid(), affiliateId: aff.id, type: 'conversion', orderId: order.id, userId: user.id, createdAt: now() }); db.affiliateEvents.push({ id: uid(), affiliateId: aff.id, type: 'commission', orderId: order.id, userId: user.id, amountPaise: Math.floor(order.pricePaise * aff.rate / 100), status: 'pending', createdAt: now() }); } }
     items.push({ orderId: order.id, product: u.p.name, key: key.value, paid: rupees(order.pricePaise) });
   }
   if (coupon) coupon.used += 1;
@@ -1601,9 +1660,9 @@ route('POST', '/api/checkout', { auth: 'user' }, ({ user, body }) => {
       referral.status = 'rewarded'; referral.rewardedAt = now();
     }
   }
-  save();
   const result = { groupId, items, paid: rupees(total), balance: rupees(user.balancePaise) };
-  if (ik) idemCache.set(ik, { result, at: now() });
+  storeIdempotent('checkout:' + user.id, idem, body, result);
+  save();
   return result;
 });
 
@@ -1687,6 +1746,76 @@ route('GET', '/api/admin/pages', A, () => pagesOut());
 // ----- offers + genuine reviews -----
 route('GET', '/api/offers', () => db.coupons.filter((c) => c.active && c.highlight && (!c.expiresAt || c.expiresAt > now()) && !(c.maxUses > 0 && c.used >= c.maxUses)).slice(0, 4).map((c) => ({ code: c.code, label: c.type === 'percent' ? c.value + '% off' : '₹' + c.value + ' off', min: rupees(c.minOrderPaise || 0) })));
 route('GET', '/api/reviews/recent', () => db.reviews.slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, 6).map((r) => ({ rating: r.rating, comment: r.comment, product: r.productName, user: maskName(r.username), createdAt: r.createdAt })));
+
+// ======================================================================
+// Next-level reseller modules (v2.2): operations, suppliers, affiliate,
+// SEO, gifts, loyalty, bundles, advanced analytics and community.
+// ======================================================================
+const moduleText = (v, max=180) => String(v || '').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0,max);
+const activeAffiliate = (code) => db.affiliates.find(a => a.code.toLowerCase() === String(code||'').toLowerCase() && a.active);
+
+// Operations centre: live counts, recent incidents and safe admin acknowledgement.
+route('GET','/api/admin/operations',A,() => ({
+  at: now(), health: saveFailed ? 'degraded' : 'operational', storage: REMOTE_URL ? 'persistent' : 'ephemeral',
+  payments: { pending: db.payments.filter(x=>x.status==='pending').length, failed: db.payments.filter(x=>x.status==='failed').length },
+  orders: { completed: db.orders.filter(x=>x.status==='completed').length, refunded: db.orders.filter(x=>x.status==='refunded').length },
+  inventory: { available: db.keys.filter(x=>x.status==='available').length, sold: db.keys.filter(x=>x.status==='sold').length },
+  incidents: db.incidents.slice(-50).reverse()
+}));
+route('POST','/api/admin/operations/incidents',A,({body})=>{ const item={id:uid(),title:cleanText(body.title,3,100,'Title'),detail:moduleText(body.detail,500),severity:['low','medium','high'].includes(body.severity)?body.severity:'medium',status:'open',createdAt:now()}; db.incidents.push(item); save(); return reply(201,item); });
+route('POST','/api/admin/operations/incidents/:id/resolve',A,({params})=>{const x=db.incidents.find(i=>i.id===params.id);if(!x)fail(404,'Incident not found');x.status='resolved';x.resolvedAt=now();save();return x;});
+
+// Supplier directory and batch traceability. Batch stock records preserve cost at purchase time.
+route('GET','/api/admin/suppliers',A,()=>db.suppliers.map(s=>({...s,batches:db.supplierBatches.filter(b=>b.supplierId===s.id).length})));
+route('POST','/api/admin/suppliers',A,({body})=>{const x={id:uid(),name:cleanText(body.name,2,100,'Supplier name'),contact:moduleText(body.contact,120),email:moduleText(body.email,120),notes:moduleText(body.notes,500),active:body.active!==false,createdAt:now()};db.suppliers.push(x);save();return reply(201,x);});
+route('PUT','/api/admin/suppliers/:id',A,({params,body})=>{const x=db.suppliers.find(s=>s.id===params.id);if(!x)fail(404,'Supplier not found');for(const k of ['name','contact','email','notes'])if(body[k]!==undefined)x[k]=k==='name'?cleanText(body[k],2,100,'Supplier name'):moduleText(body[k],500);if(body.active!==undefined)x.active=!!body.active;save();return x;});
+route('GET','/api/admin/supplier-batches',A,()=>db.supplierBatches.slice().sort((a,b)=>b.createdAt-a.createdAt).map(b=>({...b,product:(db.products.find(p=>p.id===b.productId)||{}).name||'Deleted product',supplier:(db.suppliers.find(s=>s.id===b.supplierId)||{}).name||'Deleted supplier'})));
+route('POST','/api/admin/supplier-batches',A,({body})=>{const supplier=db.suppliers.find(s=>s.id===body.supplierId&&s.active),product=db.products.find(p=>p.id===body.productId);if(!supplier||!product)fail(400,'Choose an active supplier and valid product');if(!Array.isArray(body.keys)||!body.keys.length||body.keys.length>500)fail(400,'Upload 1 to 500 codes');const codes=body.keys.map(k=>String(k).trim()).filter(Boolean);if(codes.length!==body.keys.length||codes.some(k=>k.length>300)||new Set(codes).size!==codes.length)fail(400,'Codes must be unique and valid');const cost=Number(body.unitCost);if(!Number.isFinite(cost)||cost<0||cost>10000000)fail(400,'Invalid unit cost');const batchId=uid(),at=now();for(const value of codes)db.keys.push({id:uid(),productId:product.id,value,status:'available',addedAt:at,supplierId:supplier.id,batchId,unitCostPaise:Math.round(cost*100)});const batch={id:batchId,supplierId:supplier.id,productId:product.id,quantity:codes.length,unitCostPaise:Math.round(cost*100),reference:moduleText(body.reference,100),createdAt:at};db.supplierBatches.push(batch);save();return reply(201,batch);});
+
+// Affiliate tracking: explicit referral attribution, commission ledger and manual payout workflow.
+route('GET','/api/admin/affiliates',A,()=>db.affiliates.map(a=>({...a,clicks:db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='click').length,conversions:db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='conversion').length,unpaidPaise:db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='commission'&&e.status==='pending').reduce((n,e)=>n+e.amountPaise,0)})));
+route('POST','/api/admin/affiliates',A,({body})=>{const name=cleanText(body.name,2,80,'Name');let code=moduleText(body.code,24).toUpperCase().replace(/[^A-Z0-9_-]/g,'');if(code.length<4)code='AFF'+crypto.randomBytes(3).toString('hex').toUpperCase();if(db.affiliates.some(a=>a.code===code))fail(409,'Affiliate code already exists');const rate=Math.max(0,Math.min(50,Number.isFinite(Number(body.rate))?Number(body.rate):5));const a={id:uid(),name,code,rate,active:true,createdAt:now()};db.affiliates.push(a);save();return reply(201,a);});
+route('POST','/api/affiliate/track/:code',({params,user,ip})=>{limit('affclick:'+(ip||'unknown'),30,60000);const a=activeAffiliate(params.code);if(!a)fail(404,'Affiliate code not found');if(user&&user.id===a.userId)return {ok:true};db.affiliateEvents.push({id:uid(),affiliateId:a.id,type:'click',userId:user?user.id:null,ipHash:crypto.createHash('sha256').update(String(ip||'')).digest('hex').slice(0,16),createdAt:now()});save();return {ok:true,code:a.code};});
+route('POST','/api/affiliate/apply',{auth:'user'},({user,body})=>{const a=activeAffiliate(body.code);if(!a)fail(404,'Affiliate code not found');user.affiliateId=a.id;save();return {ok:true};});
+route('GET','/api/affiliate/me',{auth:'user'},({user})=>{const id=user.affiliateId;return {active:!!id,affiliate:id?db.affiliates.find(a=>a.id===id)?.name:null,commissions:db.affiliateEvents.filter(e=>e.userId===user.id&&e.type==='commission').length};});
+route('GET','/api/admin/affiliate-payouts',A,()=>db.affiliatePayouts.slice().sort((a,b)=>b.createdAt-a.createdAt));
+route('POST','/api/admin/affiliate-payouts',A,({body})=>{const a=db.affiliates.find(x=>x.id===body.affiliateId);if(!a)fail(404,'Affiliate not found');const amount=Number(body.amount);if(!Number.isFinite(amount)||amount<=0)fail(400,'Invalid payout amount');const paise=Math.round(amount*100),due=db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='commission'&&e.status==='pending').reduce((n,e)=>n+e.amountPaise,0);if(paise>due)fail(400,'Payout exceeds pending commission');let left=paise;for(const e of db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='commission'&&e.status==='pending')){const take=Math.min(left,e.amountPaise);e.amountPaise-=take;left-=take;if(e.amountPaise===0)e.status='paid';if(!left)break;}const p={id:uid(),affiliateId:a.id,amountPaise:paise,reference:moduleText(body.reference,100),status:'recorded',createdAt:now()};db.affiliatePayouts.push(p);save();return reply(201,p);});
+
+// SEO metadata and public robots/sitemap endpoints.
+route('GET','/api/seo/:slug',({params})=>db.seoPages[params.slug]||{title:db.settings.siteName||'Key Store',description:'Digital gift cards and gaming codes with secure checkout.',canonical:'',noindex:false});
+route('GET','/api/admin/seo',A,()=>db.seoPages);
+route('PUT','/api/admin/seo/:slug',A,({params,body})=>{const slug=String(params.slug).toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,80);if(!slug)fail(400,'Invalid page slug');db.seoPages[slug]={title:cleanText(body.title,2,70,'SEO title'),description:cleanText(body.description,10,180,'Meta description'),canonical:moduleText(body.canonical,300),noindex:!!body.noindex,updatedAt:now()};save();return db.seoPages[slug];});
+
+// Gift purchases: wallet-paid, inventory-backed and recipient-bound. Gift code only visible to recipient.
+route('POST','/api/gifts/buy',{auth:'user'},({user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.gifts.find(g=>g.buyerId===user.id&&g.idem===idem);if(prior)return {id:prior.id,product:prior.productName,status:prior.status,recipient:prior.recipient,replayed:true};}const p=db.products.find(x=>x.id===body.productId&&x.active),recipient=cleanText(body.recipient,3,120,'Recipient');if(!p)fail(404,'Product not found');if(user.balancePaise<p.pricePaise)fail(402,'Not enough wallet balance');const key=db.keys.find(k=>k.productId===p.id&&k.status==='available');if(!key)fail(409,'Out of stock');const recipientUser=db.users.find(u=>u.username.toLowerCase()===recipient.toLowerCase());if(!recipientUser)fail(400,'Recipient must have an existing store account. External email delivery is not configured.');if(recipientUser.id===user.id)fail(400,'Choose another store account as the gift recipient.');const id=uid();key.status='gift';key.giftId=id;const g={id,buyerId:user.id,idem:idem||null,recipient,recipientUserId:recipientUser.id,productId:p.id,productName:p.name,keyId:key.id,message:moduleText(body.message,300),status:'sent',createdAt:now()};user.balancePaise-=p.pricePaise;addTxn(user,'gift_purchase',-p.pricePaise,'Gift: '+p.name);db.gifts.push(g);save();return reply(201,{id,product:p.name,status:g.status,recipient});});
+route('GET','/api/admin/gifts',A,()=>db.gifts.slice().sort((a,b)=>b.createdAt-a.createdAt).map(g=>({id:g.id,recipient:g.recipient,product:g.productName,status:g.status,createdAt:g.createdAt,buyer:(db.users.find(u=>u.id===g.buyerId)||{}).username||'Unknown'})));
+route('GET','/api/gifts/sent',{auth:'user'},({user})=>db.gifts.filter(g=>g.buyerId===user.id).map(g=>({id:g.id,recipient:g.recipient,product:g.productName,status:g.status,createdAt:g.createdAt,message:g.message})));
+route('GET','/api/gifts/received',{auth:'user'},({user})=>db.gifts.filter(g=>g.recipientUserId===user.id).map(g=>({id:g.id,product:g.productName,status:g.status,message:g.message,createdAt:g.createdAt,code:(db.keys.find(k=>k.id===g.keyId)||{}).value||null})));
+
+// Loyalty points are a separate non-cash ledger; redeeming never mutates wallet cash balance.
+route('GET','/api/loyalty/me',{auth:'user'},({user})=>{const rows=db.loyaltyLedger.filter(x=>x.userId===user.id);return {points:rows.reduce((n,x)=>n+x.points,0),history:rows.slice(-50).reverse()};});
+route('POST','/api/loyalty/redeem',{auth:'user'},({user,body})=>{const points=Math.floor(Number(body.points));if(!Number.isInteger(points)||points<100||points%100)fail(400,'Redeem in multiples of 100 points');const balance=db.loyaltyLedger.filter(x=>x.userId===user.id).reduce((n,x)=>n+x.points,0);if(points>balance)fail(400,'Not enough points');db.loyaltyLedger.push({id:uid(),userId:user.id,points:-points,type:'redeem',note:'Converted to wallet credit at 100 points = ₹1',createdAt:now()});user.balancePaise+=points;addTxn(user,'loyalty_redemption',points,'Loyalty points converted to wallet credit');save();return {points:balance-points,walletBalance:rupees(user.balancePaise),walletCredit:rupees(points)};});
+route('GET','/api/admin/loyalty',A,()=>({settings:db.settings.loyalty||{earnPer100:1},ledger:db.loyaltyLedger.slice(-200).reverse()}));
+route('PUT','/api/admin/loyalty',A,({body})=>{const earn=Math.floor(Number(body.earnPer100));if(!Number.isInteger(earn)||earn<0||earn>100)fail(400,'Earn rate must be 0 to 100');db.settings.loyalty={earnPer100:earn};save();return db.settings.loyalty;});
+
+// Product bundles: atomic stock validation and allocation in one synchronous handler.
+route('GET','/api/bundles',()=>db.bundles.filter(b=>b.active).map(b=>({...b,items:b.items.map(i=>({productId:i.productId,quantity:i.quantity,product:(db.products.find(p=>p.id===i.productId)||{}).name||'Unavailable'}))})));
+route('GET','/api/admin/bundles',A,()=>db.bundles);
+route('POST','/api/admin/bundles',A,({body})=>{const name=cleanText(body.name,3,80,'Bundle name');if(!Array.isArray(body.items)||body.items.length<2||body.items.length>8)fail(400,'Bundle needs 2 to 8 products');const items=body.items.map(i=>({productId:String(i.productId),quantity:Math.max(1,Math.min(5,Math.floor(Number(i.quantity)||1)))}));if(items.some(i=>!db.products.some(p=>p.id===i.productId&&p.active)))fail(400,'Invalid bundle product');const price=Number(body.price);if(!Number.isFinite(price)||price<=0)fail(400,'Invalid bundle price');const b={id:uid(),name,description:moduleText(body.description,300),items,pricePaise:Math.round(price*100),active:true,createdAt:now()};db.bundles.push(b);save();return reply(201,b);});
+route('PUT','/api/admin/bundles/:id',A,({params,body})=>{const b=db.bundles.find(x=>x.id===params.id);if(!b)fail(404,'Bundle not found');if(body.active!==undefined)b.active=!!body.active;if(body.price!==undefined){const n=Number(body.price);if(!Number.isFinite(n)||n<=0)fail(400,'Invalid price');b.pricePaise=Math.round(n*100);}save();return b;});
+route('POST','/api/bundles/:id/buy',{auth:'user'},({params,user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.orders.find(o=>o.userId===user.id&&o.bundleId===params.id&&o.idem===idem);if(prior){const group=db.orders.filter(o=>o.groupId===prior.groupId);return {groupId:prior.groupId,items:group.map(o=>({orderId:o.id,product:o.productName,key:(db.keys.find(k=>k.id===o.keyId)||{}).value})),paid:rupees(group.reduce((n,o)=>n+o.pricePaise,0)),balance:rupees(user.balancePaise),replayed:true};}}const b=db.bundles.find(x=>x.id===params.id&&x.active);if(!b)fail(404,'Bundle not found');const units=[];for(const i of b.items){const p=db.products.find(x=>x.id===i.productId&&x.active);if(!p)fail(409,'Bundle product unavailable');const keys=db.keys.filter(k=>k.productId===p.id&&k.status==='available');if(keys.length<i.quantity)fail(409,'Bundle is out of stock');for(let n=0;n<i.quantity;n++)units.push({p,key:keys[n]});}if(user.balancePaise<b.pricePaise)fail(402,'Not enough wallet balance');user.balancePaise-=b.pricePaise;const groupId=uid(),items=[],baseShare=Math.floor(b.pricePaise/units.length),remainder=b.pricePaise-baseShare*units.length;for(let index=0;index<units.length;index++){const u=units[index];u.key.status='sold';u.key.orderId=uid();u.key.soldAt=now();const o={id:u.key.orderId,groupId,userId:user.id,username:user.username,productId:u.p.id,productName:u.p.name,pricePaise:baseShare+(index<remainder?1:0),costPaise:u.key.unitCostPaise!==undefined?u.key.unitCostPaise:(u.p.costPaise||0),keyId:u.key.id,status:'completed',createdAt:now(),bundleId:b.id,idem:idem||null};db.orders.push(o);items.push({orderId:o.id,product:u.p.name,key:u.key.value});}addTxn(user,'purchase',-b.pricePaise,'Bundle: '+b.name);save();return {groupId,items,paid:rupees(b.pricePaise),balance:rupees(user.balancePaise)};});
+
+// Community: moderated text-only posts, replies, reporting and verified buyer marker.
+route('GET','/api/community',()=>db.communityPosts.filter(p=>p.status==='published').slice(-100).reverse().map(p=>({...p,replies:(p.replies||[]).slice(-20)})));
+route('POST','/api/community',{auth:'user'},({user,body})=>{limit('community-post:'+user.id,5,3600000);const post={id:uid(),userId:user.id,username:maskName(user.username),title:cleanText(body.title,3,100,'Title'),body:cleanText(body.body,5,1500,'Post'),status:'published',verifiedBuyer:db.orders.some(o=>o.userId===user.id&&o.status==='completed'),replies:[],createdAt:now()};db.communityPosts.push(post);save();return reply(201,post);});
+route('POST','/api/community/:id/reply',{auth:'user'},({params,user,body})=>{limit('community-reply:'+user.id,20,3600000);const p=db.communityPosts.find(x=>x.id===params.id&&x.status==='published');if(!p)fail(404,'Post not found');p.replies=p.replies||[];if(p.replies.length>=100)fail(400,'Reply limit reached');p.replies.push({id:uid(),userId:user.id,username:maskName(user.username),body:cleanText(body.body,2,600,'Reply'),createdAt:now()});save();return {ok:true};});
+route('POST','/api/community/:id/report',{auth:'user'},({params,user,body})=>{if(!db.communityPosts.some(x=>x.id===params.id))fail(404,'Post not found');if(db.communityReports.some(r=>r.postId===params.id&&r.userId===user.id))fail(409,'Already reported');db.communityReports.push({id:uid(),postId:params.id,userId:user.id,reason:cleanText(body.reason,3,200,'Reason'),status:'open',createdAt:now()});save();return {ok:true};});
+route('GET','/api/admin/community',A,()=>({posts:db.communityPosts.slice(-200).reverse(),reports:db.communityReports.filter(r=>r.status==='open').slice(-100).reverse()}));
+route('POST','/api/admin/community/:id/hide',A,({params})=>{const p=db.communityPosts.find(x=>x.id===params.id);if(!p)fail(404,'Post not found');p.status='hidden';save();return {ok:true};});
+route('POST','/api/admin/community/reports/:id/resolve',A,({params})=>{const r=db.communityReports.find(x=>x.id===params.id);if(!r)fail(404,'Report not found');r.status='resolved';r.resolvedAt=now();save();return {ok:true};});
+
+// Extended business intelligence derived from existing transactions without duplicating core analytics.
+route('GET','/api/admin/analytics/advanced',A,({query})=>{const days=Math.max(7,Math.min(365,parseInt(query.get('days'),10)||90)),since=now()-days*86400000,orders=db.orders.filter(o=>o.status==='completed'&&o.createdAt>=since),byUser=new Map();for(const o of orders)byUser.set(o.userId,(byUser.get(o.userId)||0)+1);const repeat=[...byUser.values()].filter(n=>n>1).length;const spend=new Map();for(const o of db.orders.filter(o=>o.status==='completed'))spend.set(o.userId,(spend.get(o.userId)||0)+o.pricePaise);const customers=spend.size;const ltv=customers?[...spend.values()].reduce((a,b)=>a+b,0)/customers/100:0;return {days,orders:orders.length,repeatCustomers:repeat,repeatRate:byUser.size?Math.round(repeat/byUser.size*100):0,customers,averageLifetimeValue:Math.round(ltv*100)/100,community:{posts:db.communityPosts.length,reportsOpen:db.communityReports.filter(r=>r.status==='open').length},affiliate:{clicks:db.affiliateEvents.filter(e=>e.type==='click'&&e.createdAt>=since).length,commissions:db.affiliateEvents.filter(e=>e.type==='commission'&&e.createdAt>=since).length},giftOrders:db.gifts.filter(g=>g.createdAt>=since).length,bundleOrders:orders.filter(o=>o.bundleId).length};});
 
 // ----- extra admin tools -----
 route('GET', '/api/admin/users.csv', A, ({ res }) => {

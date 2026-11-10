@@ -1,35 +1,51 @@
-# Speedo Key Shop
+# Speedo Keys / Key Store — v2.4.0
 
-Dark-neon digital-key storefront with an admin panel, wallet, categories, product links, coupons, referrals, key inventory, order history, and maintenance mode.
+A zero-dependency Node.js gift-card and digital-key reseller storefront with customer accounts, wallet, stock-backed automatic code delivery, admin management and nine additional hybrid modules.
 
-## Requirements
-- Node.js 20.6+
-- Upstash Redis REST credentials for persistent production storage on Render
-- A real payment gateway configuration before accepting real payments
+## Local run
+Requires Node.js 20.6 or newer.
 
-## Render environment variables
-Set these in **Render → Service → Environment** (do not commit real secrets):
-- `ADMIN_PASSWORD`: strong admin login password
-- `JWT_SECRET`: long random secret (at least 32 random characters recommended)
-- `UPSTASH_REDIS_REST_URL`: Upstash Redis REST URL
-- `UPSTASH_REDIS_REST_TOKEN`: Upstash Redis REST token
-- `PUBLIC_URL`: public Render URL, e.g. `https://your-service.onrender.com`
-- `GATEWAY`: `mock` for testing; `zapupi` only when ZapUPI credentials/webhook are configured
-- `ZAPUPI_API_KEY` (or `ZAP_KEY`): required for ZapUPI
-- `ZAP_WEBHOOK_SECRET`: random secret of at least 16 characters for the webhook URL
-- Optional `ZAP_WEBHOOK_IP`: restrict webhook source IP if your gateway publishes stable IPs
-- Optional `TRUST_PROXY=1` when running behind a trusted reverse proxy
+```bash
+ADMIN_PASSWORD='use-a-unique-password-of-12-chars-minimum' JWT_SECRET='use-a-random-secret-of-at-least-32-bytes-here' GATEWAY=mock npm start
+```
+
+Open `http://localhost:3000` for the store and `http://localhost:3000/admin.html` for the admin panel. The mock payment flow is for local testing only and does not collect real money.
+
+## v2.4.0 security and reliability repairs
+- Stronger environment-secret requirements and 10-character minimum for new/change passwords.
+- Baseline response security headers and HTTPS HSTS.
+- Admin token versioning plus `POST /api/admin/logout-all` for emergency session revocation.
+- Durable 30-day idempotency for `/api/buy` and `/api/checkout`, including payload mismatch detection.
+- Actual `sw.js` is now served, with a bumped cache version.
+- Dynamic SEO sitemap and server-rendered metadata for configured SEO slugs.
+- ZapUPI webhook auto-credit now requires a configured exact source-IP allowlist; raw webhook payloads are no longer logged.
+
+## Validate
+
+```bash
+node preflight.js
+node --check server.js
+node --check test.js
+npm test
+```
 
 ## Deploy
-1. Upload the project files to your GitHub repository.
-2. In Render, connect the repository as a **Web Service**.
-3. Build command: `npm install` (there are no external dependencies).
-4. Start command: `npm start`.
-5. Set the environment variables above.
-6. Confirm `/api/health` returns `{ "ok": true, ... }`.
+See [DEPLOY_FREE.md](DEPLOY_FREE.md). A free web host needs a separate persistent datastore; do not rely on local JSON files for production inventory or customer balances.
 
-## Tests
-Run `npm test` with Node.js 20.6 or newer. Tests use a temporary local data file and mock payments; they do not charge money or contact Upstash/ZapUPI.
+## Key endpoints
+- `GET /api/admin/operations` — operations dashboard
+- `/api/admin/suppliers` and `/api/admin/supplier-batches` — supplier stock intake
+- `/api/admin/affiliates`, `/api/affiliate/track/:code`, `/api/affiliate/apply` — affiliate tracking
+- `/api/admin/seo`, `/api/seo/:slug`, `/robots.txt`, `/sitemap.xml` — SEO metadata
+- `/api/gifts/*` — gift purchases and recipient account delivery
+- `/api/loyalty/*` — separate points ledger and redemption
+- `/api/bundles` and `/api/admin/bundles` — product bundles
+- `/api/admin/analytics/advanced` — customer and module analytics
+- `/api/community/*` and `/api/admin/community` — moderated community
 
-## Payment warning
-`GATEWAY=mock` is test-only and simulates wallet top-ups. The current ZapUPI adapter creates payment orders and accepts the configured webhook, but the provider's signed webhook/status-verification contract must be confirmed with ZapUPI before production use. Do not manually approve a top-up unless you have independently verified that the money arrived.
+## Important scope notes
+- The current JSON/Upstash whole-database design is single-instance only; do not scale to multiple app instances until migrated to transactional storage with cross-instance locking.
+- ZapUPI provider signature verification is not implemented because the provider-specific signing contract has not been confirmed. IP allowlisting and the secret callback path are not a replacement for provider-signed HMAC/signature verification. Confirm official provider docs before enabling real-money auto-credit.
+- Rotate `ADMIN_PASSWORD` (12+ chars) and `JWT_SECRET` (32+ random bytes) when upgrading. Configure `ZAP_WEBHOOK_IPS` with the provider’s exact webhook source IP(s) if using ZapUPI; the app refuses to start in ZapUPI mode without it.
+
+Gift codes are currently delivered to an existing recipient username inside the recipient's store account. External email/SMS delivery and scheduled gift delivery are not connected. Affiliate payouts are recorded manually; no automatic bank/UPI payout API is connected. A real payment provider must be configured and tested before real sales.
