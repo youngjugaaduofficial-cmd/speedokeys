@@ -1,11 +1,12 @@
 {
   "name": "keystore-backend",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "private": true,
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test.js"
+    "test": "node test.js",
+    "check": "node preflight.js"
   },
   "engines": {
     "node": ">=20.6"

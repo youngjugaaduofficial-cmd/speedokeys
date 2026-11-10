@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#07080f">
+<meta name="theme-color" content="#090909">
 <title>Admin Panel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -78,14 +78,103 @@
   #toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:#0b0d1d; border:1px solid var(--p); padding:10px 16px; border-radius:12px; max-width:90%; display:none; z-index:50; text-align:center; box-shadow:0 0 24px rgba(244,63,158,.45); }
   .spin { width:22px; height:22px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--p); animation:sp .8s linear infinite; display:inline-block; vertical-align:middle; }
   @keyframes sp { to { transform:rotate(360deg); } }
+
+  #side{position:fixed;inset:0 auto 0 0;width:292px;max-width:86vw;z-index:40;display:flex;flex-direction:column;background:linear-gradient(180deg,color-mix(in srgb,var(--v) 24%,var(--panel)),var(--panel) 55%);border-right:1px solid var(--line);transform:translateX(-105%);transition:transform .32s cubic-bezier(.2,.8,.2,1);box-shadow:20px 0 60px -20px #000}
+  #side.open{transform:none}
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:39;opacity:0;pointer-events:none;transition:opacity .25s;backdrop-filter:blur(2px)}
+  #scrim.on{opacity:1;pointer-events:auto}
+  .sb-h{display:flex;align-items:center;gap:12px;padding:18px 16px 10px}
+  .sb-l{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--v),var(--c));box-shadow:0 8px 24px -8px var(--v)}
+  .sb-t{flex:1;font:700 19px var(--head);letter-spacing:.5px}
+  .ib{width:44px;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .sb-n{flex:1;overflow:auto;padding:4px 12px 12px;scrollbar-width:thin}
+  .sb-g{font:700 12px var(--body);letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);opacity:.8;padding:16px 8px 6px}
+  .sb-i{display:flex;align-items:center;gap:14px;width:100%;min-height:48px;padding:0 14px;border-radius:14px;border:0;background:0;color:var(--muted);font:700 17px var(--body);cursor:pointer;text-align:left;transition:background .2s,color .2s,transform .15s}
+  .sb-i:hover{background:color-mix(in srgb,var(--v) 14%,transparent);color:var(--ink)}
+  .sb-i:active{transform:scale(.98)}
+  .sb-i.on{background:linear-gradient(90deg,var(--v),color-mix(in srgb,var(--v) 70%,var(--c)));color:#fff;box-shadow:0 10px 28px -10px var(--v)}
+  .sb-i svg{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .sb-i>span+span{flex:1}
+  .bdg{min-width:26px;height:26px;padding:0 8px;border-radius:99px;background:var(--warn);color:#1a1200;font:800 14px/26px var(--body);text-align:center}
+  .sb-f{padding:12px 14px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+  .sb-f select{width:100%}
+  .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  #ptitle{flex:1;font:700 18px var(--head);letter-spacing:.5px}
+  .chipb{min-height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:700 14px var(--body);cursor:pointer}
+  .chipb i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  .chipb.m i{background:var(--err);box-shadow:0 0 10px var(--err)}
+  .qa{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}.qa .btn{flex:none}
+  #view>*{animation:vin .35s both}@keyframes vin{from{opacity:0;transform:translateY(10px)}}
+  @media(min-width:960px){#side{transform:none;box-shadow:none}#mw{margin-left:292px}#burger,#close,#scrim{display:none}main{max-width:1000px}}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  .ta{width:100%;min-height:84px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:10px 12px;font:inherit;resize:vertical}
+  .bub{max-width:88%;padding:10px 14px;border-radius:16px;background:var(--panel2);border:1px solid var(--line);white-space:pre-wrap;word-break:break-word}
+  .bub.adm{align-self:flex-end;background:color-mix(in srgb,var(--v) 35%,var(--panel2))}
+  .bub small{display:block;opacity:.6;margin-top:4px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--warn);margin-right:8px}
+  .meter{height:10px;border-radius:99px;background:var(--panel2);overflow:hidden}.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--warn),var(--err));background-size:300% 100%}
+  .stars{color:var(--warn);letter-spacing:2px}
+  .res{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto}
+  .res button{text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font:inherit;cursor:pointer}.res button:hover{border-color:var(--v)}
+/* ADMIN PANEL — STRICT BLACK & WHITE */
+:root{--bg:#090909;--panel:#111;--panel2:#191919;--line:#303030;--ink:#f4f4f4;--muted:#a1a1a1;--v:#fff;--c:#e5e5e5;--p:#fff;--ok:#fff;--err:#d4d4d4;--warn:#bdbdbd;color-scheme:dark}
+body{background:#090909!important;color:#f4f4f4;background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px)!important;background-size:32px 32px!important}header,.topbar{background:#090909f5!important;border-color:#303030}.logo{color:#fff!important;background:none!important;-webkit-text-fill-color:#fff!important}.tabs button{background:#151515;border-color:#383838;color:#aaa}.tabs button.on{background:#f2f2f2!important;color:#080808!important;border-color:#f2f2f2!important;box-shadow:none!important}.card,.tile,.modal{background:#121212!important;border:1px solid #303030!important;border-radius:12px;box-shadow:0 8px 24px #0004!important}.tile .n,.tile.pink .n,.tile.green .n,.tile.violet .n{color:#fff!important;text-shadow:none!important}.tile .l{color:#aaa}.tag,.tag.ok,.tag.bad,.tag.warn{background:#1d1d1d!important;color:#eee!important;border:1px solid #4a4a4a!important}.btn,.btn.primary,.btn.danger{background:#191919!important;color:#f5f5f5!important;border:1px solid #555!important;box-shadow:none!important}.btn.primary{background:#f1f1f1!important;color:#090909!important;border-color:#f1f1f1!important}.btn.danger{background:#171717!important;color:#fff!important;border-color:#777!important}input,select,textarea{background:#101010!important;color:#f5f5f5!important;border-color:#424242!important}input:focus,select:focus,textarea:focus{border-color:#eee!important;box-shadow:0 0 0 3px #ffffff14!important}.key{background:#080808!important;color:#fff!important;border-color:#aaa!important}.banner,.alert{background:#191919!important;color:#eee!important;border:1px solid #555!important}.bar i{background:#eee!important;box-shadow:none!important}#toast{background:#171717!important;color:#fff!important;border:1px solid #777!important;box-shadow:0 8px 24px #0006!important}.spin{border-top-color:#fff!important}#side{background:#0d0d0d!important;border-right:1px solid #333!important;box-shadow:18px 0 50px #0008!important}.sb-l{background:#eee!important;box-shadow:none!important}.sb-i{color:#aaa}.sb-i:hover{background:#202020!important;color:#fff!important}.sb-i.on{background:#eee!important;color:#080808!important;box-shadow:none!important}.sb-i.on svg{color:#080808}.sb-g{color:#888}.sb-f{border-color:#333}.ib,.chipb{background:#171717!important;color:#fff!important;border-color:#444!important}.chipb i,.chipb.m i{background:#fff!important;box-shadow:none!important}.overlay{background:#000d!important}.modal{border-radius:14px!important}.res button{background:#171717!important;color:#fff!important;border-color:#444!important}.res button:hover{border-color:#fff!important}.muted{color:#aaa!important}.ok,.err{color:#eee!important}
+
+
+/* === KEY STORE ADMIN MONOCHROME SYSTEM === */
+:root {
+  color-scheme: dark;
+  --bg:#090909; --panel:#111111; --panel2:#191919; --line:#353535;
+  --ink:#f5f5f5; --muted:#a3a3a3;
+  --v:#f5f5f5; --c:#f5f5f5; --p:#f5f5f5;
+  --ok:#d4d4d4; --err:#a3a3a3; --warn:#e5e5e5;
+}
+body {
+  color:var(--ink)!important; background-color:var(--bg)!important;
+  background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px)!important;
+}
+header,.card,.tile,.modal,#toast,input,select,textarea,.btn,.ib,.sb-i,.tag,.key,.alert,.banner {
+  box-shadow:none!important;
+}
+header { background:rgba(9,9,9,.96)!important; border-color:#353535!important; }
+.logo,.tile .n,.tile.pink .n,.tile.green .n,.tile.violet .n,
+.tag,.tag.ok,.tag.bad,.tag.warn,.key,.ok,.err {
+  color:inherit!important; text-shadow:none!important;
+}
+.logo { background:none!important; -webkit-text-fill-color:#f5f5f5!important; }
+.tabs button,.btn,.ib,.sb-i,.tile,.card,.modal {
+  background:#151515!important; color:#f0f0f0!important; border:1px solid #3a3a3a!important;
+}
+.tabs button.on,.btn.primary,.sb-i.on {
+  background:#f0f0f0!important; color:#090909!important; border-color:#f0f0f0!important;
+}
+.card { background:#111!important; border-color:#383838!important; }
+.tile { background:#171717!important; border-color:#383838!important; }
+input,select,textarea { background:#0d0d0d!important; color:#f5f5f5!important; border-color:#444!important; }
+input:focus,select:focus,textarea:focus { border-color:#ddd!important; box-shadow:0 0 0 2px rgba(255,255,255,.12)!important; }
+.btn.danger { color:#eee!important; border-color:#777!important; }
+.tag,.tag.ok,.tag.bad,.tag.warn,.banner,.alert,.key {
+  background:#202020!important; color:#eee!important; border-color:#555!important;
+}
+#side { background:#101010!important; border-color:#383838!important; }
+.sb-l { background:#eee!important; box-shadow:none!important; }
+.sb-i:hover,.sb-i.on { background:#303030!important; color:#fff!important; box-shadow:none!important; }
+.bar i { background:#ddd!important; box-shadow:none!important; }
+.spin { border-top-color:#eee!important; }
+#toast { background:#111!important; border-color:#777!important; color:#fff!important; }
+.overlay { background:rgba(0,0,0,.82)!important; }
+.modal { background:#111!important; border-color:#444!important; }
+a { color:#eee; }
+
 </style>
 </head>
 <body>
-<header id="hdr" style="display:none">
-  <div class="top"><div class="logo" id="logo">ADMIN PANEL</div><div class="gap"><select id="athm" aria-label="Admin theme" style="width:auto;padding:8px"></select><button class="btn" id="logout">Log out</button></div></div>
-  <div class="tabs" id="tabs"></div>
-</header>
-<main id="view"></main>
+<div id="shell" style="display:none">
+<aside id="side" aria-label="Menu"></aside><div id="scrim"></div>
+<div id="mw"><div class="topbar"><button class="ib" id="burger" aria-label="Menu"></button><div id="ptitle">Dashboard</div><button class="ib" id="srch" aria-label="Search"></button><button id="shopchip" class="chipb"></button></div>
+<main id="view"></main></div></div>
+<main id="loginview"></main>
 <div id="toast"></div>
 
 <script>
@@ -132,7 +221,7 @@ async function api(method, path, body) {
   let data = {}; try { data = await res.json(); } catch (e) {}
   if (!res.ok) {
     if (res.status === 401 && token) { token = null; ss.del(); toast('Session expired. Log in again.'); draw(); }
-    const err = new Error(data.error || 'Error ' + res.status); err.code = res.status; throw err;
+    const err = new Error(data.error || 'Error ' + res.status); err.code = res.status; err.data = data; throw err;
   }
   return data;
 }
@@ -141,27 +230,227 @@ const errBox = (e) => h('p', { class: 'err' }, e.message);
 const statusTag = (s) => h('span', { class: 'tag ' + (['completed', 'paid', 'available'].includes(s) ? 'ok' : ['pending', 'sold'].includes(s) ? 'warn' : 'bad') }, s);
 
 // ---------- shell ----------
-const TABS = [['dash', '📊 Dashboard'], ['products', '🎮 Products'], ['orders', '🧾 Orders'], ['users', '👥 Users'], ['coupons', '🎟 Coupons'], ['payments', '💳 Payments'], ['banners', '🖼 Banners'], ['look', '🎨 Appearance'], ['settings', '⚙ Settings']];
-function draw() {
-  const hdr = document.getElementById('hdr');
-  if (!token) { hdr.style.display = 'none'; return loginView(); }
-  hdr.style.display = 'block';
-  document.getElementById('tabs').replaceChildren(...TABS.map(([id, label]) => h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; draw(); } }, label)));
-  ({ dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView })[tab]();
+const IC = {
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', game: '<rect x="2" y="6" width="20" height="12" rx="4"/><path d="M7 10v4M5 12h4M16 11h.01M18 13h.01"/>', image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/>',
+  receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"/>', card: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>', tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="8" cy="9" r="1"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0114 0M16 4a3.5 3.5 0 010 7M22 21a7 7 0 00-4-6"/>', palette: '<path d="M12 3a9 9 0 100 18c1.5 0 2-1 1.5-2s0-2 1.5-2h2a4 4 0 004-4c0-5-4.5-10-9-10z"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>', gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+  chat: '<path d="M21 12a8 8 0 01-11.5 7.2L3 21l1.8-6A8 8 0 1121 12z"/>', star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>', bell: '<path d="M6 9a6 6 0 1112 0c0 6 2 7 2 7H4s2-1 2-7zM10 20a2 2 0 004 0"/>', shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>', rocket: '<path d="M5 15c-1 1-2 4-2 6 2 0 5-1 6-2M14 4c4 0 6 2 6 6-2 4-5 7-9 8l-5-5c1-4 4-7 8-9zM15 9h.01"/>', search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>', out: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>', ext: '<path d="M15 3h6v6M10 14L21 3M18 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h5"/>',
+};
+const icon = (n) => { const s = document.createElement('span'); s.style.display = 'flex'; s.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + IC[n] + '</svg>'; return s; };
+const NAV = [
+  ['Overview', [['dash', 'Dashboard', 'chart']]],
+  ['Catalog', [['products', 'Products', 'game'], ['banners', 'Banners', 'image']]],
+  ['Sales', [['orders', 'Orders', 'receipt'], ['payments', 'Payments', 'card'], ['coupons', 'Coupons', 'tag']]],
+  ['People', [['users', 'Users', 'users'], ['tickets', 'Support tickets', 'chat'], ['reviews', 'Reviews', 'star']]],
+  ['Engage', [['notices', 'Notices & push', 'bell'], ['growth', 'Growth & limits', 'rocket']]],
+  ['System', [['look', 'Appearance', 'palette'], ['security', 'Security & system', 'shield'], ['activity', 'Activity log', 'list'], ['settings', 'Settings', 'gear']]],
+];
+const TITLES = Object.fromEntries(NAV.flatMap(([, l]) => l.map(([k, t]) => [k, t])));
+let badges = {};
+const side = document.getElementById('side'), scrim = document.getElementById('scrim');
+const openSide = (o) => { side.classList.toggle('open', o); scrim.classList.toggle('on', o); };
+scrim.addEventListener('click', () => openSide(false));
+document.getElementById('burger').append(icon('menu'));
+document.getElementById('srch').append(icon('search'));
+document.getElementById('srch').addEventListener('click', () => openSearch());
+addEventListener('keydown', (e) => { if (token && ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')))) { e.preventDefault(); openSearch(); } });
+document.getElementById('burger').addEventListener('click', () => openSide(true));
+function go(t) { tab = t; openSide(false); draw(); scrollTo({ top: 0 }); }
+function paintNav() {
+  const sel = document.getElementById('athm');
+  const keep = sel || h('select', { id: 'athm', 'aria-label': 'Admin theme' });
+  side.replaceChildren(
+    h('div', { class: 'sb-h' }, h('div', { class: 'sb-l' }), h('div', { class: 'sb-t' }, 'Key Store Admin'), h('button', { class: 'ib', id: 'close', 'aria-label': 'Close', onclick: () => openSide(false) }, icon('x'))),
+    h('div', { class: 'sb-n' }, NAV.map(([g, items]) => h('div', {}, h('div', { class: 'sb-g' }, g), items.map(([k, t, ic]) => {
+      const n = k === 'payments' ? badges.pay : k === 'products' ? badges.low : k === 'tickets' ? badges.tk : 0;
+      return h('button', { class: 'sb-i' + (tab === k ? ' on' : ''), onclick: () => go(k) }, icon(ic), h('span', {}, t), n ? h('b', { class: 'bdg' }, String(n)) : null);
+    })))),
+    h('div', { class: 'sb-f' }, keep,
+      h('a', { class: 'sb-i', href: '/', target: '_blank', rel: 'noopener', style: 'text-decoration:none' }, icon('ext'), h('span', {}, 'View shop')),
+      h('button', { class: 'sb-i', id: 'logout' }, icon('out'), h('span', {}, 'Log out'))));
+  document.getElementById('logout').addEventListener('click', () => { token = null; ss.del(); openSide(false); draw(); });
+  if (!sel) { Object.keys(ATHEMES).forEach((k) => keep.append(h('option', { value: k }, k[0].toUpperCase() + k.slice(1)))); keep.value = localStorage.getItem('ka_theme') || 'blue'; keep.addEventListener('change', () => applyAdminTheme(keep.value)); }
 }
-document.getElementById('logout').addEventListener('click', () => { token = null; ss.del(); draw(); });
+async function refreshBadges() {
+  if (!token) return;
+  try { const s = await api('GET', '/api/admin/stats'); const c = await api('GET', '/api/admin/counts').catch(() => ({ tickets: 0 })); badges = { pay: s.pendingPayments || 0, low: (s.lowStock || []).length, tk: c.tickets || 0 }; paintNav(); } catch (e) {}
+}
+async function shopChip() {
+  const c = document.getElementById('shopchip');
+  try {
+    const s = await api('GET', '/api/admin/settings'), on = !!s.maintenanceMode;
+    c.className = 'chipb' + (on ? ' m' : ''); c.replaceChildren(h('i'), on ? 'Maintenance ON' : 'Shop live');
+    c.onclick = async () => { if (!confirm(on ? 'Shop wapas live karna hai?' : 'Maintenance mode ON karna hai? Customers buy nahi kar payenge.')) return; try { await api('PUT', '/api/admin/settings', { maintenanceMode: !on }); shopChip(); } catch (e) { toast(e.message); } };
+  } catch (e) {}
+}
+function draw() {
+  const shell = document.getElementById('shell'), lv = document.getElementById('loginview');
+  if (!token) { shell.style.display = 'none'; lv.style.display = 'block'; return loginView(lv); }
+  lv.style.display = 'none'; shell.style.display = 'block';
+  document.getElementById('ptitle').textContent = TITLES[tab] || '';
+  paintNav(); refreshBadges(); shopChip();
+  ({ dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView, activity: activityView, tickets: ticketsView, reviews: reviewsView, notices: noticesView, growth: growthView, security: securityView })[tab]();
+}
+setInterval(refreshBadges, 30000);
 
-function loginView() {
+// ---------- command search ----------
+function openSearch() {
+  const q = h('input', { placeholder: 'Search users, orders, products, tickets…', autofocus: 'autofocus' });
+  const box = h('div', { class: 'res' }, h('div', { class: 'muted small' }, 'Type at least 2 letters. Shortcut: / or Ctrl+K'));
+  const ov = modal(h('h3', {}, 'Search'), q, box);
+  let t;
+  const row = (title, sub, tabName) => h('button', { onclick: () => { ov.close(); go(tabName); } }, h('b', {}, title), h('div', { class: 'muted small' }, sub));
+  q.addEventListener('input', () => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      if (q.value.trim().length < 2) return;
+      try {
+        const r = await api('GET', '/api/admin/search?q=' + encodeURIComponent(q.value.trim()));
+        const items = [...r.users.map((u) => row('👤 ' + u.username, rupees(u.balance) + (u.banned ? ' • banned' : ''), 'users')), ...r.orders.map((o) => row('🧾 ' + o.product, o.username + ' • ' + rupees(o.paid), 'orders')), ...r.products.map((p) => row('🎮 ' + p.name, rupees(p.price), 'products')), ...r.tickets.map((x) => row('💬 ' + x.subject, x.username + ' • ' + x.status, 'tickets'))];
+        box.replaceChildren(...(items.length ? items : [h('div', { class: 'muted' }, 'Nothing found.')]));
+      } catch (e) { box.replaceChildren(errBox(e)); }
+    }, 250);
+  });
+  setTimeout(() => q.focus(), 50);
+}
+
+// ---------- support tickets ----------
+async function ticketsView() {
+  view.replaceChildren(busy());
+  try {
+    const list = await api('GET', '/api/admin/tickets');
+    const open = list.filter((t) => t.status === 'open').length;
+    view.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, open + ' open • ' + list.length + ' total'),
+      ...(list.length ? list.map((t) => {
+        const body = h('div', { class: 'stack', style: 'display:none' });
+        const draw = () => {
+          const ta = h('textarea', { class: 'ta', placeholder: 'Write a reply…', maxlength: '1000' });
+          const send = h('button', { class: 'btn primary' }, 'Send reply');
+          send.addEventListener('click', async () => { if (!ta.value.trim()) return; send.disabled = true; try { Object.assign(t, await api('POST', '/api/admin/tickets/' + t.id + '/reply', { message: ta.value })); toast('Reply sent'); draw(); refreshBadges(); } catch (e) { toast(e.message); send.disabled = false; } });
+          const cl = h('button', { class: 'btn', onclick: async () => { try { Object.assign(t, await api('POST', '/api/admin/tickets/' + t.id + '/close', { closed: t.status === 'open' })); ticketsView(); } catch (e) { toast(e.message); } } }, t.status === 'open' ? 'Close ticket' : 'Reopen');
+          body.replaceChildren(...t.messages.map((m) => h('div', { class: 'bub' + (m.from === 'admin' ? ' adm' : '') }, m.text, h('small', {}, (m.from === 'admin' ? 'You' : t.username) + ' • ' + when(m.at)))), t.status === 'open' ? ta : null, h('div', { class: 'gap' }, t.status === 'open' ? send : null, cl));
+        };
+        draw();
+        const head = h('div', { class: 'row', style: 'cursor:pointer' }, h('div', {}, h('div', {}, t.unread ? h('span', { class: 'dot' }) : null, h('b', {}, t.subject)), h('small', { class: 'muted' }, t.username + ' • ' + when(t.updatedAt))), h('span', { class: 'tag ' + (t.status === 'open' ? 'warn' : 'ok') }, t.status));
+        head.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? 'flex' : 'none'; });
+        return h('div', { class: 'card stack' }, head, body);
+      }) : [h('p', { class: 'muted' }, 'No tickets yet. Customers can open one from their Account tab.')])));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+// ---------- reviews ----------
+async function reviewsView() {
+  view.replaceChildren(busy());
+  try {
+    const list = await api('GET', '/api/admin/reviews');
+    view.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, list.length + ' reviews'),
+      ...(list.length ? list.map((r) => h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('b', {}, r.productName), h('span', { class: 'stars' }, '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating))), r.comment ? h('div', {}, r.comment) : null, h('div', { class: 'row' }, h('small', { class: 'muted' }, r.username + ' • ' + when(r.createdAt)), h('button', { class: 'btn danger', onclick: async () => { if (!confirm('Delete this review?')) return; try { await api('DELETE', '/api/admin/reviews/' + r.id); reviewsView(); } catch (e) { toast(e.message); } } }, 'Delete')))) : [h('p', { class: 'muted' }, 'No reviews yet. Customers can rate after buying.')])));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+// ---------- notices ----------
+async function noticesView() {
+  view.replaceChildren(busy());
+  try {
+    const list = await (await fetch('/api/notices')).json();
+    const title = h('input', { placeholder: 'Title e.g. Diwali sale live', maxlength: '80' });
+    const text = h('textarea', { class: 'ta', placeholder: 'Message customers will see in their bell inbox', maxlength: '400' });
+    const push = h('input', { type: 'checkbox', style: 'width:auto' });
+    const btn = h('button', { class: 'btn primary full' }, 'Publish notice');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await api('POST', '/api/admin/notices', { title: title.value, body: text.value });
+        if (push.checked) { try { const r = await api('POST', '/api/admin/notify', { title: title.value, message: text.value }); toast('Published + push sent to ' + r.recipients); } catch (e) { toast('Published. Push failed: ' + e.message); } } else toast('Published');
+        noticesView();
+      } catch (e) { toast(e.message); btn.disabled = false; }
+    });
+    view.replaceChildren(h('div', { class: 'stack' },
+      h('div', { class: 'card stack' }, h('h3', {}, 'New notice'), title, text, h('label', { class: 'gap', style: 'align-items:center' }, push, ' Also send push notification (needs OneSignal env vars)'), btn),
+      h('h2', {}, 'Published'),
+      ...(list.length ? list.map((n) => h('div', { class: 'card stack' }, h('b', {}, n.title), h('div', {}, n.body), h('div', { class: 'row' }, h('small', { class: 'muted' }, when(n.at)), h('button', { class: 'btn danger', onclick: async () => { try { await api('DELETE', '/api/admin/notices/' + n.id); noticesView(); } catch (e) { toast(e.message); } } }, 'Delete')))) : [h('p', { class: 'muted' }, 'No notices yet.')])));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+// ---------- growth & limits ----------
+async function growthView() {
+  view.replaceChildren(busy());
+  try {
+    const s = await api('GET', '/api/admin/settings');
+    const inp = (v, ph) => h('input', { value: String(v), inputmode: 'decimal', placeholder: ph || '' });
+    const welcome = inp(s.welcomeBonus), ref = inp(s.referralReward), daily = inp(s.dailyTopupLimit), fresh = inp(s.newUserTopupLimit), buys = inp(s.maxBuysPerHour), minT = inp(s.minTopup), maxT = inp(s.maxTopup);
+    let tiers = (s.bonusTiers || []).map((t) => ({ ...t }));
+    const tb = h('div', { class: 'stack' });
+    const paint = () => tb.replaceChildren(...tiers.map((t, i) => h('div', { class: 'gap', style: 'align-items:center' }, h('span', {}, 'Add ₹'), h('input', { value: String(t.min), inputmode: 'decimal', style: 'width:90px', oninput: (e) => { t.min = e.target.value; } }), h('span', {}, 'get ₹'), h('input', { value: String(t.bonus), inputmode: 'decimal', style: 'width:90px', oninput: (e) => { t.bonus = e.target.value; } }), h('span', {}, 'extra'), h('button', { class: 'btn danger', onclick: () => { tiers.splice(i, 1); paint(); } }, '✕'))), tiers.length < 6 ? h('button', { class: 'btn', onclick: () => { tiers.push({ min: 500, bonus: 20 }); paint(); } }, '+ Add tier') : null);
+    paint();
+    const save = h('button', { class: 'btn primary full' }, 'Save');
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      try { await api('PUT', '/api/admin/settings', { welcomeBonus: Number(welcome.value), referralReward: Number(ref.value), dailyTopupLimit: Number(daily.value), newUserTopupLimit: Number(fresh.value), maxBuysPerHour: Number(buys.value), minTopup: Number(minT.value), maxTopup: Number(maxT.value), bonusTiers: tiers.map((t) => ({ min: Number(t.min), bonus: Number(t.bonus) })) }); toast('Saved'); } catch (e) { toast(e.message); }
+      save.disabled = false;
+    });
+    const f = (l, el, hint) => h('div', {}, h('label', {}, l), el, hint ? h('div', { class: 'muted small' }, hint) : null);
+    view.replaceChildren(h('div', { class: 'stack' },
+      h('div', { class: 'card stack' }, h('h3', {}, 'Rewards'), f('Welcome bonus (₹, new accounts)', welcome, '0 = off. Given once per network to stop fake accounts.'), f('Referral reward (₹)', ref), h('h3', {}, 'Top-up bonus tiers'), h('div', { class: 'muted small' }, 'Customers who add at least the amount get the extra coins automatically.'), tb),
+      h('div', { class: 'card stack' }, h('h3', {}, 'Fraud limits'), f('Daily top-up limit per user (₹)', daily), f('First 24 hours top-up limit (₹)', fresh, 'Lower limit for brand new accounts.'), f('Max purchases per hour per user', buys), f('Minimum top-up (₹)', minT), f('Maximum single top-up (₹)', maxT)),
+      save));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+// ---------- security & system ----------
+async function securityView() {
+  view.replaceChildren(busy());
+  try {
+    const [sys, tf] = await Promise.all([api('GET', '/api/admin/system'), api('GET', '/api/admin/2fa')]);
+    const pct = sys.limitBytes ? Math.min(100, Math.round((sys.packedBytes / sys.limitBytes) * 100)) : 0;
+    const fa = h('div', { class: 'card stack' }, h('h3', {}, 'Two-factor login (2FA)'));
+    const code = h('input', { placeholder: '6-digit code', inputmode: 'numeric', maxlength: '8' });
+    if (tf.enabled) {
+      fa.append(h('p', { class: 'muted' }, 'ON. Login needs your password and an authenticator code.'), code, h('button', { class: 'btn danger', onclick: async () => { try { await api('POST', '/api/admin/2fa/disable', { code: code.value }); toast('2FA turned off'); securityView(); } catch (e) { toast(e.message); } } }, 'Turn off 2FA'));
+    } else {
+      fa.append(h('p', { class: 'muted' }, 'OFF. Anyone with your admin password can log in. Turn it on with Google Authenticator, Authy or similar.'), h('button', { class: 'btn primary', onclick: async () => {
+        try {
+          const r = await api('POST', '/api/admin/2fa/setup');
+          fa.replaceChildren(h('h3', {}, 'Set up 2FA'), h('p', {}, 'In your authenticator app choose "Enter a setup key" and type this key (account: Key Store, type: time-based):'), h('div', { class: 'card', style: 'word-break:break-all;font-size:20px;letter-spacing:2px' }, r.secret), h('button', { class: 'btn', onclick: () => copyText(r.secret) }, 'Copy key'), h('p', { class: 'muted small' }, 'Then enter the 6-digit code it shows:'), code, h('button', { class: 'btn primary', onclick: async () => { try { await api('POST', '/api/admin/2fa/enable', { code: code.value }); toast('2FA is ON'); securityView(); } catch (e) { toast(e.message); } } }, 'Confirm and turn on'));
+        } catch (e) { toast(e.message); }
+      } }, 'Set up 2FA'));
+    }
+    const line = (k, v, bad) => h('div', { class: 'row' }, h('span', { class: 'muted' }, k), h('b', { class: bad ? 'err' : '' }, String(v)));
+    const mb = (n) => (n / 1024).toFixed(0) + ' KB';
+    view.replaceChildren(h('div', { class: 'stack' },
+      sys.saveFailed ? h('div', { class: 'alert' }, 'Saving to storage is failing right now. The server keeps retrying. Check Upstash.') : null,
+      fa,
+      h('div', { class: 'card stack' }, h('h3', {}, 'Storage'), line('Where', sys.storage + (sys.durable ? '' : ' (resets on free hosting!)'), !sys.durable), line('Database size (compressed)', mb(sys.packedBytes) + (sys.limitBytes ? ' of ' + mb(sys.limitBytes) : '')), sys.limitBytes ? h('div', { class: 'meter' }, h('i', { style: 'width:' + pct + '%' })) : null, line('Encrypted at rest', sys.encrypted ? 'Yes (AES-256)' : 'No', !sys.encrypted), sys.encrypted ? null : h('p', { class: 'muted small' }, 'To encrypt keys and user data: add an environment variable DB_ENC_KEY (a long random phrase) on Render and redeploy. Save that phrase somewhere safe: without it the data cannot be opened.')),
+      h('div', { class: 'card stack' }, h('h3', {}, 'Payments'), line('Gateway', sys.gateway), line('Verification', sys.paymentVerify, sys.paymentVerify === 'test mode')),
+      h('div', { class: 'card stack' }, h('h3', {}, 'System'), line('Uptime', sys.uptimeMin + ' min'), line('Node', sys.node), line('Users', sys.counts.users), line('Products', sys.counts.products), line('Keys', sys.counts.keys), line('Orders', sys.counts.orders), line('Tickets', sys.counts.tickets), line('Reviews', sys.counts.reviews)),
+      h('button', { class: 'btn', onclick: () => downloadAuth('/api/admin/backup', 'keystore-backup.json') }, 'Download full backup')));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+// ---------- activity log ----------
+const ACT = [[/tickets/, 'Replied to / closed a ticket'], [/reviews/, 'Deleted a review'], [/notices/, 'Notice changed'], [/2fa/, 'Changed 2FA'],[/products\/:id\/keys/, 'Uploaded keys'], [/generate/, 'Generated keys'], [/keys\/:id/, 'Deleted a key'], [/products/, 'Product changed'], [/categories/, 'Category changed'], [/ban/, 'Banned/unbanned user'], [/balance/, 'Adjusted wallet balance'], [/users\/:id\/password/, 'Reset user password'], [/refund/, 'Refunded an order'], [/approve/, 'Approved a payment'], [/coupons/, 'Coupon changed'], [/banners/, 'Banner changed'], [/notify/, 'Sent broadcast'], [/settings/, 'Settings changed']];
+async function activityView() {
+  view.replaceChildren(busy());
+  try {
+    const l = await api('GET', '/api/admin/audit');
+    view.replaceChildren(h('div', { class: 'card stack' }, h('h3', {}, 'Recent admin actions'), h('p', { class: 'muted small' }, 'Last 150 changes made from the admin panel.'),
+      ...(l.length ? l.map((e) => h('div', { class: 'row' }, h('div', {}, h('div', {}, (ACT.find(([r]) => r.test(e.p)) || [0, e.m + ' ' + e.p])[1]), h('small', { class: 'muted' }, new Date(e.at).toLocaleString('en-IN') + (e.ip ? ' • ' + e.ip : ''))), h('span', { class: 'tag' }, e.m))) : [h('div', { class: 'muted' }, 'No actions yet.')])));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+function loginView(box) {
   const pw = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
+  const code = h('input', { placeholder: '6-digit 2FA code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '8', style: 'display:none' });
   const btn = h('button', { class: 'btn primary full' }, 'Enter');
   const go = async () => {
     btn.disabled = true;
-    try { const r = await api('POST', '/api/admin/login', { password: pw.value }); token = r.token; ss.set(token); draw(); }
-    catch (e) { toast(e.message); btn.disabled = false; }
+    try { const r = await api('POST', '/api/admin/login', { password: pw.value, code: code.value }); token = r.token; ss.set(token); draw(); }
+    catch (e) { if (e.data && e.data.need2fa) { code.style.display = 'block'; code.focus(); } toast(e.message); btn.disabled = false; }
   };
-  btn.addEventListener('click', go); pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  view.replaceChildren(h('div', { class: 'card stack', style: 'max-width:380px;margin:12vh auto 0' },
-    h('div', { class: 'logo', style: 'font-size:22px;text-align:center' }, 'ADMIN PANEL'), h('div', { class: 'muted', style: 'text-align:center' }, 'Authorised access only'), pw, btn));
+  btn.addEventListener('click', go); pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); code.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  (box || view).replaceChildren(h('div', { class: 'card stack', style: 'max-width:380px;margin:12vh auto 0' },
+    h('div', { class: 'logo', style: 'font-size:22px;text-align:center' }, 'ADMIN PANEL'), h('div', { class: 'muted', style: 'text-align:center' }, 'Authorised access only'), pw, code, btn));
 }
 
 // ---------- dashboard ----------
@@ -169,9 +458,11 @@ async function dashView() {
   view.replaceChildren(busy());
   try {
     const s = await api('GET', '/api/admin/stats');
+    let ro = []; try { ro = (await api('GET', '/api/admin/orders')).slice(0, 6); } catch (e) {}
     const max = Math.max(1, ...s.last7days.map((d) => d.revenue));
     view.replaceChildren(h('div', { class: 'stack' },
       s.testMode ? h('div', { class: 'banner' }, 'TEST MODE: payments are simulated. Connect a real payment gateway before selling.') : null,
+      h('div', { class: 'qa' }, [['products', '+ Product'], ['banners', '+ Banner'], ['coupons', '+ Coupon'], ['look', 'Appearance'], ['activity', 'Activity']].map(([k, t]) => h('button', { class: 'btn', onclick: () => go(k) }, t))),
       s.pendingPayments ? h('div', { class: 'alert row' }, h('span', {}, '⏳ ' + s.pendingPayments + ' payment(s) waiting'), h('button', { class: 'btn', onclick: () => { tab = 'payments'; draw(); } }, 'Review')) : null,
       h('div', { class: 'tiles' },
         tile('Revenue today', rupees(s.revenueToday), 'green'), tile('Total revenue', rupees(s.revenueTotal), 'green'),
@@ -181,6 +472,8 @@ async function dashView() {
       h('div', { class: 'card' }, h('h3', {}, 'Last 7 days'),
         h('div', { class: 'bars' }, s.last7days.map((d) => h('div', { class: 'bar', title: d.date + ': ' + rupees(d.revenue) + ', ' + d.orders + ' orders' },
           h('b', {}, d.revenue ? rupees(d.revenue) : ''), h('i', { style: 'height:' + Math.max(2, Math.round((d.revenue / max) * 100)) + '%' }), h('span', {}, d.date.slice(8)))))),
+      h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('h3', {}, 'Recent orders'), h('button', { class: 'btn', onclick: () => go('orders') }, 'All')),
+        ...(ro.length ? ro.map((o) => h('div', { class: 'row' }, h('div', {}, h('div', {}, o.product), h('small', { class: 'muted' }, o.username + ' • ' + new Date(o.createdAt).toLocaleString('en-IN'))), h('b', {}, rupees(o.paid)))) : [h('div', { class: 'muted' }, 'No orders yet.')])),
       h('div', { class: 'grid' },
         h('div', { class: 'card stack' }, h('h3', {}, '⚠ Low stock'),
           ...(s.lowStock.length ? s.lowStock.map((p) => h('div', { class: 'row' }, h('span', {}, p.name), h('span', { class: 'tag ' + (p.left === 0 ? 'bad' : 'warn') }, p.left + ' left'))) : [h('div', { class: 'muted' }, 'All products are well stocked.')])),
@@ -195,17 +488,22 @@ function productForm(p, onDone) {
   const name = h('input', { placeholder: 'Name', value: p ? p.name : '' });
   const cat = h('input', { placeholder: 'Category (e.g. Android, iOS)', value: p ? p.category : '' });
   const desc = h('input', { placeholder: 'Short description (e.g. 1 day)', value: p ? p.description : '' });
-  const price = h('input', { placeholder: 'Price in ₹', inputmode: 'decimal', value: p ? String(p.price) : '' });
+  const price = h('input', { placeholder: 'Selling price in ₹', inputmode: 'decimal', value: p ? String(p.price) : '' });
+  const mrp = h('input', { placeholder: 'Original price (MRP) for strike-through, optional', inputmode: 'decimal', value: p && p.mrp ? String(p.mrp) : '' });
+  const badge = h('input', { placeholder: 'Badge e.g. HOT, NEW, SALE (optional)', maxlength: '16', value: p ? p.badge || '' : '' });
+  const steps = h('textarea', { class: 'ta', placeholder: 'How to redeem (shown to customers), optional', maxlength: '500' }); steps.value = p ? p.steps || '' : '';
+  const feat = h('input', { type: 'checkbox', style: 'width:auto' }); if (p && p.featured) feat.checked = true;
   const btn = h('button', { class: 'btn primary full' }, p ? 'Save changes' : 'Add product');
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      const body = { name: name.value, category: cat.value, description: desc.value, price: Number(price.value) };
+      const body = { name: name.value, category: cat.value, description: desc.value, price: Number(price.value), mrp: Number(mrp.value) || 0, badge: badge.value, steps: steps.value, featured: feat.checked };
       if (p) await api('PUT', '/api/admin/products/' + p.id, body); else await api('POST', '/api/admin/products', body);
       toast(p ? 'Saved' : 'Product added'); onDone();
     } catch (e) { toast(e.message); btn.disabled = false; }
   });
-  return [h('div', {}, h('label', {}, 'Name'), name), h('div', {}, h('label', {}, 'Category'), cat), h('div', {}, h('label', {}, 'Description'), desc), h('div', {}, h('label', {}, 'Price (₹)'), price), btn];
+  const f = (l, el) => h('div', {}, h('label', {}, l), el);
+  return [f('Name', name), f('Category', cat), f('Description', desc), f('Price (₹)', price), f('MRP (₹)', mrp), f('Badge', badge), f('How to redeem', steps), h('label', { class: 'gap', style: 'align-items:center' }, feat, ' Featured (shows in Trending row on top)'), btn];
 }
 
 async function productsView() {
@@ -407,6 +705,7 @@ async function settingsView() {
 
 // ---------- admin theme (this browser only) ----------
 const ATHEMES = {
+  blue: { bg: '#050b1a', panel: '#0a1530', panel2: '#10214a', line: '#1c3a7a', ink: '#e8f0ff', muted: '#8ca3d1', v: '#2f6bff', c: '#38bdf8', p: '#60a5fa' },
   neon: { bg: '#07080f', panel: '#0f1120', panel2: '#171a38', line: '#252a55', ink: '#e9ebff', muted: '#8e94c0', v: '#8b5cf6', c: '#22d3ee', p: '#f43f9e' },
   ocean: { bg: '#04121c', panel: '#082131', panel2: '#0d3047', line: '#16506e', ink: '#e6f6ff', muted: '#80a9be', v: '#0ea5e9', c: '#2dd4bf', p: '#38bdf8' },
   sunset: { bg: '#150a0a', panel: '#221110', panel2: '#331a16', line: '#5a2d22', ink: '#fff0e8', muted: '#c49a88', v: '#f97316', c: '#fbbf24', p: '#ef4444' },
@@ -421,10 +720,7 @@ function applyAdminTheme(n) {
   try { localStorage.setItem('ka_theme', n); } catch (e) {}
 }
 (function () {
-  let n = 'neon'; try { n = localStorage.getItem('ka_theme') || 'neon'; } catch (e) {}
-  const sel = document.getElementById('athm');
-  Object.keys(ATHEMES).forEach((k) => sel.append(h('option', { value: k, selected: k === n ? 'selected' : false }, k[0].toUpperCase() + k.slice(1))));
-  sel.addEventListener('change', () => applyAdminTheme(sel.value));
+  let n = 'blue'; try { n = localStorage.getItem('ka_theme') || 'blue'; } catch (e) {}
   applyAdminTheme(n);
 })();
 
