@@ -225,6 +225,7 @@ nav#nav .di.out{color:#ff5d73}.dic{display:grid;place-items:center;width:40px;he
 @media(min-width:700px){.pgrid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}}
 .pc{box-sizing:border-box;width:100%;min-width:0}.pu{box-sizing:border-box}.pgrid>*{min-width:0}
 .pc .pu.btn{width:calc(100% - 32px);max-width:none;display:block;margin:0 16px;box-sizing:border-box}
+.pi{margin:0 16px 8px!important}.pi+.pp{margin-top:6px}.pf{background-size:cover}
 </style>
 </head>
 <body>
@@ -284,8 +285,8 @@ const l=products.filter(p=>(cat==='All'||p.category===cat)&&(av==='all'||p.inSto
 grid.replaceChildren(...(l.length?l.map(pcard):[h('div',{class:'empty'},'Kuch nahi mila. Doosra search try karo.')]))};
 v.append(h('div',{class:'sh'},'>> SEARCH PRODUCT'),h('div',{class:'sb'},'🔎',h('input',{placeholder:'Type product or item name to search','aria-label':'Search',value:q,oninput:e=>{q=e.target.value;paint()}})),h('div',{class:'sh'},'>> FILTER DASHBOARD'),h('div',{class:'fd'},h('div',{class:'fl2'},'CATEGORY'),cw,h('div',{class:'fl2 or'},'AVAILABILITY'),aw),h('div',{class:'sh'},'>> STORE PRODUCTS'),grid);paint()}
 function pcard(p){const x=hue(p.name),out=!(p.inStock>0)||cfg.maintenanceMode;
-return h('div',{class:'pc'+(out?' dn':'')},h('div',{class:'pf',style:`background:linear-gradient(135deg,hsl(${x} 80% 40%),hsl(${(x+55)%360} 80% 20%))`},h('div',{class:'tags'},h('span',{class:'tg g'},p.category||'Code'),p.badge?h('span',{class:'tg b'},p.badge):null),out?h('div',{class:'mt'},'⚠ OUT OF STOCK'):h('div',{class:'ini'},p.name.slice(0,2).toUpperCase())),
-h('div',{class:'pn'},'⚡ '+p.name),h('div',{class:'pi'},'⚡ '+(p.description||'Instant digital code')),
+return h('div',{class:'pc'+(out?' dn':'')},h('div',{class:'pf',style:p.image?`background:#05070d url("${p.image.replace(/["\\()]/g,'')}") center/cover`:`background:linear-gradient(135deg,hsl(${x} 80% 40%),hsl(${(x+55)%360} 80% 20%))`},h('div',{class:'tags'},h('span',{class:'tg g'},p.category||'Code'),p.badge?h('span',{class:'tg b'},p.badge):null),out?h('div',{class:'mt'},'⚠ OUT OF STOCK'):(p.image?null:h('div',{class:'ini'},p.name.slice(0,2).toUpperCase()))),
+h('div',{class:'pn'},'⚡ '+p.name),...(p.description||'Instant digital code').split(/\r?\n/).filter(l=>l.trim()).slice(0,12).map(l=>h('div',{class:'pi'},'⚡ '+l.trim())),
 h('div',{class:'pp'},h('b',{},R(p.price)),p.mrp>p.price?h('s',{},R(p.mrp)):null,h('em',{},p.inStock>0?(p.inStock<=5?'Only '+p.inStock+' left':'In stock'):'0 stock')),
 out?h('button',{class:'btn full pu',disabled:true},'⚠ PRODUCT UNAVAILABLE'):h('button',{class:'btn p full pu',onclick:()=>buyModal(p)},'🔑 PURCHASE KEY'))}
 let favs=[];try{favs=JSON.parse(st.get('ks_fav'))||[]}catch(e){}

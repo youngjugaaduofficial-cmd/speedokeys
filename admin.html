@@ -559,7 +559,14 @@ const tile = (label, value, color) => h('div', { class: 'tile ' + (color || '') 
 function productForm(p, onDone) {
   const name = h('input', { placeholder: 'Name', value: p ? p.name : '' });
   const cat = h('input', { placeholder: 'Category (e.g. Android, iOS)', value: p ? p.category : '' });
-  const desc = h('input', { placeholder: 'Short description (e.g. 1 day)', value: p ? p.description : '' });
+  const desc = h('textarea', { class: 'ta', rows: '5', maxlength: '1000', placeholder: 'Description - har nayi line card me alag point banegi\n(e.g. Validity: 1 HR / Android + iOS / Instant delivery)' }); desc.value = p ? p.description || '' : '';
+  const imgIn = h('input', { placeholder: 'Image link https://... (ya neeche se upload karo)', value: p && p.image && !p.image.startsWith('data:') ? p.image : '' });
+  const imgFile = h('input', { type: 'file', accept: 'image/*' });
+  const imgPrev = h('img', { style: 'max-width:100%;max-height:180px;border-radius:12px;display:' + (p && p.image ? 'block' : 'none') }); if (p && p.image) imgPrev.src = p.image;
+  let imgData = p && p.image && p.image.startsWith('data:') ? p.image : '';
+  imgFile.addEventListener('change', async () => { if (!imgFile.files[0]) return; try { imgData = await shrinkImage(imgFile.files[0], 640, 0.72); imgIn.value = ''; imgPrev.src = imgData; imgPrev.style.display = 'block'; toast('Image ready (' + Math.round(imgData.length / 1024) + ' KB)'); } catch (e) { toast(e.message); } });
+  imgIn.addEventListener('input', () => { const v = imgIn.value.trim(); if (v) { imgData = ''; imgPrev.src = v; imgPrev.style.display = 'block'; } else if (!imgData) imgPrev.style.display = 'none'; });
+  const imgClear = h('button', { class: 'btn', type: 'button' }, 'Image hatao'); imgClear.addEventListener('click', () => { imgIn.value = ''; imgData = ''; imgPrev.style.display = 'none'; imgFile.value = ''; });
   const price = h('input', { placeholder: 'Selling price in ₹', inputmode: 'decimal', value: p ? String(p.price) : '' });
   const mrp = h('input', { placeholder: 'Original price (MRP) for strike-through, optional', inputmode: 'decimal', value: p && p.mrp ? String(p.mrp) : '' });
   const badge = h('input', { placeholder: 'Badge e.g. HOT, NEW, SALE (optional)', maxlength: '16', value: p ? p.badge || '' : '' });
@@ -569,13 +576,13 @@ function productForm(p, onDone) {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      const body = { name: name.value, category: cat.value, description: desc.value, price: Number(price.value), mrp: Number(mrp.value) || 0, badge: badge.value, steps: steps.value, featured: feat.checked };
+      const body = { name: name.value, category: cat.value, description: desc.value, image: imgIn.value.trim() || imgData || '', price: Number(price.value), mrp: Number(mrp.value) || 0, badge: badge.value, steps: steps.value, featured: feat.checked };
       if (p) await api('PUT', '/api/admin/products/' + p.id, body); else await api('POST', '/api/admin/products', body);
       toast(p ? 'Saved' : 'Product added'); onDone();
     } catch (e) { toast(e.message); btn.disabled = false; }
   });
   const f = (l, el) => h('div', {}, h('label', {}, l), el);
-  return [f('Name', name), f('Category', cat), f('Description', desc), f('Price (₹)', price), f('MRP (₹)', mrp), f('Badge', badge), f('How to redeem', steps), h('label', { class: 'gap', style: 'align-items:center' }, feat, ' Featured (shows in Trending row on top)'), btn];
+  return [f('Name', name), f('Category', cat), f('Description', desc), f('Product image', h('div', { class: 'stack' }, imgIn, imgFile, imgPrev, imgClear)), f('Price (₹)', price), f('MRP (₹)', mrp), f('Badge', badge), f('How to redeem', steps), h('label', { class: 'gap', style: 'align-items:center' }, feat, ' Featured (shows in Trending row on top)'), btn];
 }
 
 async function productsView() {

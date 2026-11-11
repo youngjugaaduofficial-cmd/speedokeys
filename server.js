@@ -982,7 +982,7 @@ function readProductFields(body, partial) {
     if (!Number.isFinite(price) || price < 1 || price > 500000) fail(400, 'Price must be 1 to 500000');
     out.pricePaise = Math.round(price * 100);
   }
-  if (body.description !== undefined) out.description = String(body.description).trim().slice(0, 300);
+  if (body.description !== undefined) out.description = String(body.description).trim().slice(0, 1000);
   if (body.category !== undefined) out.category = String(body.category).trim().slice(0, 50);
   if (body.websiteUrl !== undefined) {
     const rawUrl = String(body.websiteUrl || '').trim();
