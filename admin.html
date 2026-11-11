@@ -184,6 +184,28 @@ a { color:#eee; }
 /* SPEEDO KEYS ADMIN UX POLISH — monochrome only */
 html{scroll-behavior:smooth;scroll-padding-top:76px}#ptitle{font-size:clamp(15px,2vw,19px);letter-spacing:.2px}.topbar{min-height:62px;padding-top:calc(10px + env(safe-area-inset-top))}#view{max-width:1180px;padding-top:22px}#view>*{animation:adminIn .28s cubic-bezier(.16,1,.3,1) both}@keyframes adminIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}.card,.tile{border-radius:13px!important;transition:border-color .18s,transform .18s;background:#121212!important}.card:hover,.tile:hover{border-color:#666!important;transform:translateY(-1px)}.btn,.ib,.sb-i,.tabs button{transition:background .18s,color .18s,border-color .18s,transform .15s}.btn:active,.ib:active{transform:scale(.98)}input,select,textarea{border-radius:9px!important;min-height:44px}label{letter-spacing:.8px;font-weight:700}.row{row-gap:8px}.sb-i{border-radius:9px!important;min-height:46px}.sb-i.on{background:#eee!important;color:#090909!important}.sb-i.on svg{color:#090909!important}#toast{border-radius:9px!important}@media(min-width:960px){#view{padding:28px 28px 64px}.topbar{padding-left:28px;padding-right:28px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}#view>*{animation:none!important}}
 
+/* duration plan editor + chat */
+.planrow{display:grid;grid-template-columns:1.4fr 1fr 1fr auto auto;gap:6px;align-items:center}.planrow input{min-width:0}.plan-on{display:flex;align-items:center;gap:4px;margin:0;font-size:12px}.btn.sm{min-height:34px;padding:0 10px;font-size:13px}.plans{display:flex;flex-direction:column;gap:2px}
+@media(max-width:520px){.planrow{grid-template-columns:1fr 1fr 1fr}.planrow .plan-on,.planrow .btn{grid-column:auto}}
+/* WhatsApp-style support chat (admin stays monochrome) */
+.wa{display:grid;grid-template-columns:340px 1fr;height:calc(100vh - 130px);min-height:420px;border:1px solid #333;border-radius:14px;overflow:hidden;background:#0d0d0d}
+.wa-list{display:flex;flex-direction:column;min-height:0;border-right:1px solid #2a2a2a}.wa-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px}
+.wa-search{margin:0 12px 10px;width:calc(100% - 24px)!important;border-radius:999px!important}.wa-rows{overflow:auto;flex:1}
+.wa-row{display:flex;gap:12px;align-items:center;width:100%;padding:12px 16px;border:0;border-bottom:1px solid #1d1d1d;background:transparent;color:#eee;text-align:left;cursor:pointer;font:inherit}.wa-row:hover,.wa-row.on{background:#1a1a1a}
+.wa-av{flex:none;width:44px;height:44px;border-radius:50%;background:#e8e8e8;color:#090909;display:grid;place-items:center;font:800 18px var(--head)}
+.wa-mid{flex:1;min-width:0}.wa-name{font-weight:800;display:flex;gap:8px;align-items:center}.wa-closed{font-size:11px;color:#999;border:1px solid #444;border-radius:99px;padding:0 7px}
+.wa-prev{color:#999;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wa-meta{display:flex;flex-direction:column;align-items:flex-end;gap:5px}.wa-time{font-size:12px;color:#999}
+.wa-badge{min-width:22px;height:22px;border-radius:99px;background:#f2f2f2;color:#090909;font:800 12px/22px var(--body);text-align:center;padding:0 6px}.wa-empty{padding:24px 16px}
+.wa-thread{display:flex;flex-direction:column;min-height:0;min-width:0;background:#0a0a0a}.wa-none{margin:auto;color:#888;text-align:center;display:flex;flex-direction:column;gap:6px}
+.wa-thead{display:flex;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid #2a2a2a;background:#111}.wa-back{display:none;border:0;background:0;color:#fff;font-size:24px;cursor:pointer}
+.wa-body{flex:1;overflow:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:4px;background-image:radial-gradient(#ffffff08 1px,transparent 1px);background-size:18px 18px}
+.wa-day{align-self:center;margin:10px 0}.wa-day span{font-size:12px;color:#aaa;background:#1b1b1b;border-radius:8px;padding:3px 10px}
+.wa-msg{max-width:min(78%,520px);padding:7px 10px 4px;border-radius:12px;position:relative;word-break:break-word}.wa-msg.in{align-self:flex-start;background:#1e1e1e;border-top-left-radius:3px}.wa-msg.out{align-self:flex-end;background:#e6e6e6;color:#0a0a0a;border-top-right-radius:3px}
+.wa-txt{white-space:pre-wrap;font-size:16px;line-height:1.35}.wa-ts{font-size:11px;text-align:right;opacity:.6;margin-top:2px}.wa-tick{letter-spacing:-2px;font-weight:800}.wa-tick.seen{opacity:1;text-shadow:0 0 0 #000}
+.wa-bar{display:flex;gap:8px;align-items:flex-end;padding:10px;background:#111;border-top:1px solid #2a2a2a}
+.wa-input{flex:1;resize:none;border-radius:22px!important;min-height:44px;max-height:120px;padding:11px 16px!important;font-family:var(--body)!important}
+.wa-send{flex:none;width:46px;height:46px;border-radius:50%;border:0;background:#f2f2f2;color:#090909;display:grid;place-items:center;cursor:pointer}.wa-send:disabled{opacity:.5}
+@media(max-width:760px){.wa{grid-template-columns:1fr;height:calc(100vh - 110px)}.wa-thread{display:none}.wa.show .wa-list{display:none}.wa.show .wa-thread{display:flex}.wa-back{display:block}}
 </style>
 </head>
 <body>
@@ -260,9 +282,10 @@ const NAV = [
   ['Overview', [['dash', 'Dashboard', 'chart']]],
   ['Catalog', [['products', 'Products', 'game'], ['banners', 'Banners', 'image']]],
   ['Sales', [['orders', 'Orders', 'receipt'], ['payments', 'Payments', 'card'], ['coupons', 'Coupons', 'tag']]],
-  ['People', [['users', 'Users', 'users'], ['tickets', 'Support tickets', 'chat']]],
+  ['People', [['users', 'Users', 'users'], ['tickets', 'Support chat', 'chat']]],
   ['Engage', [['notices', 'Notices & push', 'bell']]],
   ['Operations', [['operations','Operations Center','chart'],['suppliers','Suppliers','users']]],
+  ['Growth', [['affiliates','Affiliates','users'],['bundles','Bundles','tag'],['gifts','Gifts','star'],['loyalty','Loyalty','rocket'],['community','Community','chat'],['advanced','Advanced analytics','chart'],['seo','SEO','search']]],
   ['System', [['security', 'Security & system', 'shield'], ['activity', 'Activity log', 'list'], ['settings', 'Settings', 'gear']]],
 ];
 const TITLES = Object.fromEntries(NAV.flatMap(([, l]) => l.map(([k, t]) => [k, t])));
@@ -388,27 +411,105 @@ function openSearch() {
   setTimeout(() => q.focus(), 50);
 }
 
-// ---------- support tickets ----------
+// ---------- support chat (WhatsApp style) ----------
+let chatTimer = null, chatOpen = null;
+const hm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const dayLabel = (ms) => { const d = new Date(ms), t = new Date(); const k = (x) => x.toDateString(); if (k(d) === k(t)) return 'Today'; const y = new Date(t); y.setDate(t.getDate() - 1); return k(d) === k(y) ? 'Yesterday' : d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }); };
+const SEND_ICO = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3.4 20.4l17.5-7.5a1 1 0 000-1.8L3.4 3.6a1 1 0 00-1.4 1.2l2 5.7 9 1.5-9 1.5-2 5.7a1 1 0 001.4 1.2z"/></svg>';
+const sendBtnEl = () => { const b = h('button', { class: 'wa-send', type: 'button', 'aria-label': 'Send' }); b.innerHTML = SEND_ICO; return b; };
+// Group every ticket of one customer into a single conversation.
+function groupChats(list) {
+  const m = new Map();
+  for (const t of list) {
+    const c = m.get(t.username) || { user: t.username, tickets: [], msgs: [], unread: 0, updatedAt: 0 };
+    c.tickets.push(t); c.unread += t.unread ? 1 : 0; c.updatedAt = Math.max(c.updatedAt, t.updatedAt);
+    t.messages.forEach((x) => c.msgs.push({ ...x, ticket: t }));
+    m.set(t.username, c);
+  }
+  for (const c of m.values()) { c.msgs.sort((a, b) => a.at - b.at); c.tickets.sort((a, b) => b.updatedAt - a.updatedAt); }
+  return [...m.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
 async function ticketsView() {
+  clearInterval(chatTimer);
   view.replaceChildren(busy());
-  try {
+  let chats = [], lastSig = '';
+  const wrap = h('div', { class: 'wa' });
+  const listPane = h('div', { class: 'wa-list' }), threadPane = h('div', { class: 'wa-thread' });
+  wrap.append(listPane, threadPane);
+  const sig = () => chats.map((c) => c.user + c.updatedAt + c.unread + c.tickets[0].status).join('|');
+  async function load(first) {
     const list = await api('GET', '/api/admin/tickets');
-    const open = list.filter((t) => t.status === 'open').length;
-    view.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, open + ' open • ' + list.length + ' total'),
-      ...(list.length ? list.map((t) => {
-        const body = h('div', { class: 'stack', style: 'display:none' });
-        const draw = () => {
-          const ta = h('textarea', { class: 'ta', placeholder: 'Write a reply…', maxlength: '1000' });
-          const send = h('button', { class: 'btn primary' }, 'Send reply');
-          send.addEventListener('click', async () => { if (!ta.value.trim()) return; send.disabled = true; try { Object.assign(t, await api('POST', '/api/admin/tickets/' + t.id + '/reply', { message: ta.value })); toast('Reply sent'); draw(); refreshBadges(); } catch (e) { toast(e.message); send.disabled = false; } });
-          const cl = h('button', { class: 'btn', onclick: async () => { try { Object.assign(t, await api('POST', '/api/admin/tickets/' + t.id + '/close', { closed: t.status === 'open' })); ticketsView(); } catch (e) { toast(e.message); } } }, t.status === 'open' ? 'Close ticket' : 'Reopen');
-          body.replaceChildren(...t.messages.map((m) => h('div', { class: 'bub' + (m.from === 'admin' ? ' adm' : '') }, m.text, h('small', {}, (m.from === 'admin' ? 'You' : t.username) + ' • ' + when(m.at)))), t.status === 'open' ? ta : null, h('div', { class: 'gap' }, t.status === 'open' ? send : null, cl));
-        };
-        draw();
-        const head = h('div', { class: 'row', style: 'cursor:pointer' }, h('div', {}, h('div', {}, t.unread ? h('span', { class: 'dot' }) : null, h('b', {}, t.subject)), h('small', { class: 'muted' }, t.username + ' • ' + when(t.updatedAt))), h('span', { class: 'tag ' + (t.status === 'open' ? 'warn' : 'ok') }, t.status));
-        head.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? 'flex' : 'none'; });
-        return h('div', { class: 'card stack' }, head, body);
-      }) : [h('p', { class: 'muted' }, 'No tickets yet. Customers can open one from their Account tab.')])));
+    chats = groupChats(list);
+    const s = sig();
+    if (!first && s === lastSig) return;
+    lastSig = s;
+    paintList(); if (chatOpen) paintThread(first);
+    refreshBadges();
+  }
+  function paintList() {
+    const q = h('input', { class: 'wa-search', placeholder: 'Search customer…', value: listPane.dataset.q || '', oninput: (e) => { listPane.dataset.q = e.target.value; paintRows(); } });
+    const rows = h('div', { class: 'wa-rows' });
+    const paintRows = () => {
+      const needle = (listPane.dataset.q || '').toLowerCase();
+      const shown = chats.filter((c) => !needle || c.user.toLowerCase().includes(needle));
+      rows.replaceChildren(...(shown.length ? shown.map((c) => {
+        const last = c.msgs[c.msgs.length - 1], open = c.tickets[0].status === 'open';
+        return h('button', { class: 'wa-row' + (chatOpen === c.user ? ' on' : ''), onclick: () => { chatOpen = c.user; wrap.classList.add('show'); paintRows(); paintThread(true); } },
+          h('div', { class: 'wa-av' }, c.user.slice(0, 1).toUpperCase()),
+          h('div', { class: 'wa-mid' }, h('div', { class: 'wa-name' }, c.user, open ? null : h('span', { class: 'wa-closed' }, 'closed')), h('div', { class: 'wa-prev' }, (last.from === 'admin' ? '✓ ' : '') + last.text)),
+          h('div', { class: 'wa-meta' }, h('div', { class: 'wa-time' }, hm(c.updatedAt)), c.unread ? h('b', { class: 'wa-badge' }, String(c.unread)) : null));
+      }) : [h('div', { class: 'muted wa-empty' }, 'No conversations yet. Customers can message you from the Support tab.')]));
+    };
+    listPane.replaceChildren(h('div', { class: 'wa-head' }, h('b', {}, 'Support chats'), h('span', { class: 'muted small' }, chats.reduce((n, c) => n + c.unread, 0) + ' unread')), q, rows);
+    paintRows();
+  }
+  function paintThread(scrollEnd) {
+    const c = chats.find((x) => x.user === chatOpen);
+    if (!c) { threadPane.replaceChildren(h('div', { class: 'wa-none' }, 'Select a chat')); return; }
+    const latest = c.tickets[0];
+    const prevBody = threadPane.querySelector('.wa-body'), prevText = (threadPane.querySelector('.wa-input') || {}).value || '';
+    const nearEnd = !prevBody || scrollEnd || prevBody.scrollHeight - prevBody.scrollTop - prevBody.clientHeight < 120;
+    const body = h('div', { class: 'wa-body' });
+    let day = '';
+    for (const m of c.msgs) {
+      const d = dayLabel(m.at);
+      if (d !== day) { day = d; body.append(h('div', { class: 'wa-day' }, h('span', {}, d))); }
+      const mine = m.from === 'admin';
+      const tick = mine ? h('span', { class: 'wa-tick' + (m.ticket.peerUnread ? '' : ' seen') }, m.ticket.peerUnread ? '✓' : '✓✓') : null;
+      body.append(h('div', { class: 'wa-msg ' + (mine ? 'out' : 'in') }, h('div', { class: 'wa-txt' }, m.text), h('div', { class: 'wa-ts' }, hm(m.at), ' ', tick)));
+    }
+    const input = h('textarea', { class: 'wa-input', rows: '1', placeholder: 'Type a message', maxlength: '1000' }); input.value = prevText;
+    const grow = () => { input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; };
+    input.addEventListener('input', grow);
+    const send = sendBtnEl();
+    const doSend = async () => {
+      const text = input.value.trim(); if (!text) return;
+      send.disabled = true;
+      try {
+        if (latest.status !== 'open') await api('POST', '/api/admin/tickets/' + latest.id + '/close', { closed: false });
+        await api('POST', '/api/admin/tickets/' + latest.id + '/reply', { message: text });
+        input.value = ''; await load(true);
+      } catch (e) { toast(e.message); }
+      send.disabled = false;
+    };
+    send.addEventListener('click', doSend);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+    const toggle = h('button', { class: 'btn sm', onclick: async () => { try { await api('POST', '/api/admin/tickets/' + latest.id + '/close', { closed: latest.status === 'open' }); await load(true); } catch (e) { toast(e.message); } } }, latest.status === 'open' ? 'Close chat' : 'Reopen');
+    const orderNote = [...new Set(c.tickets.map((t) => t.orderName).filter(Boolean))].slice(0, 2).join(', ');
+    threadPane.replaceChildren(
+      h('div', { class: 'wa-thead' }, h('button', { class: 'wa-back', 'aria-label': 'Back', onclick: () => { wrap.classList.remove('show'); chatOpen = null; paintList(); } }, '←'), h('div', { class: 'wa-av' }, c.user.slice(0, 1).toUpperCase()), h('div', { class: 'wa-mid' }, h('div', { class: 'wa-name' }, c.user), h('div', { class: 'muted small' }, (latest.status === 'open' ? 'open' : 'closed') + (orderNote ? ' • ' + orderNote : ''))), toggle),
+      body, h('div', { class: 'wa-bar' }, input, send));
+    if (nearEnd) body.scrollTop = body.scrollHeight; else if (prevBody) body.scrollTop = prevBody.scrollTop;
+    grow();
+    // mark the customer's unread messages as seen
+    c.tickets.filter((t) => t.unread).forEach((t) => api('POST', '/api/admin/tickets/' + t.id + '/read', {}).then(() => { t.unread = false; refreshBadges(); }).catch(() => {}));
+  }
+  try {
+    await load(true);
+    view.replaceChildren(wrap);
+    if (!chatOpen) threadPane.replaceChildren(h('div', { class: 'wa-none' }, h('div', { style: 'font-size:34px' }, '💬'), 'Select a chat to reply'));
+    else wrap.classList.add('show');
+    chatTimer = setInterval(() => { if (tab !== 'tickets' || !token) return clearInterval(chatTimer); load(false).catch(() => {}); }, 8000);
   } catch (e) { view.replaceChildren(errBox(e)); }
 }
 
@@ -556,10 +657,28 @@ async function dashView() {
 const tile = (label, value, color) => h('div', { class: 'tile ' + (color || '') }, h('div', { class: 'n' }, String(value)), h('div', { class: 'l' }, label));
 
 // ---------- products ----------
+const PLAN_PRESETS = ['1 Hour', '3 Hours', '6 Hours', '12 Hours', '24 Hours', '3 Days', '7 Days', '30 Days'];
+function planEditor(p) {
+  const plans = ((p && p.plans) || []).map((x) => ({ id: x.id, label: x.label, price: String(x.price), mrp: x.mrp ? String(x.mrp) : '', active: x.active !== false }));
+  const box = h('div', { class: 'stack', style: 'gap:8px' });
+  const paint = () => {
+    box.replaceChildren(
+      ...plans.map((x, i) => h('div', { class: 'planrow' },
+        h('input', { value: x.label, placeholder: 'e.g. 1 Hour', maxlength: '30', oninput: (e) => { x.label = e.target.value; } }),
+        h('input', { value: x.price, placeholder: 'Price ₹', inputmode: 'decimal', oninput: (e) => { x.price = e.target.value; } }),
+        h('input', { value: x.mrp, placeholder: 'MRP ₹', inputmode: 'decimal', oninput: (e) => { x.mrp = e.target.value; } }),
+        h('label', { class: 'plan-on', title: 'Show this plan in the shop' }, h('input', { type: 'checkbox', checked: x.active ? 'checked' : false, style: 'width:auto;min-height:0', onchange: (e) => { x.active = e.target.checked; } }), 'On'),
+        h('button', { class: 'btn danger sm', type: 'button', onclick: () => { plans.splice(i, 1); paint(); } }, '✕'))),
+      plans.length ? null : h('div', { class: 'muted small' }, 'No plans: product sells at a single price. Add plans for time-based keys (1 Hour, 24 Hours, 3 Days...).'),
+      h('div', { class: 'gap' }, PLAN_PRESETS.map((t) => h('button', { class: 'btn sm', type: 'button', onclick: () => { if (plans.length < 12) { plans.push({ label: t, price: '', mrp: '', active: true }); paint(); } } }, '+ ' + t)), h('button', { class: 'btn sm', type: 'button', onclick: () => { if (plans.length < 12) { plans.push({ label: '', price: '', mrp: '', active: true }); paint(); } } }, '+ Custom')));
+  };
+  paint();
+  return { el: box, get: () => plans.map((x) => ({ id: x.id, label: x.label, price: Number(x.price), mrp: Number(x.mrp) || 0, active: x.active })) };
+}
 function productForm(p, onDone) {
   const name = h('input', { placeholder: 'Name', value: p ? p.name : '' });
   const cat = h('input', { placeholder: 'Category (e.g. Android, iOS)', value: p ? p.category : '' });
-  const desc = h('textarea', { class: 'ta', rows: '5', maxlength: '1000', placeholder: 'Description - har nayi line card me alag point banegi\n(e.g. Validity: 1 HR / Android + iOS / Instant delivery)' }); desc.value = p ? p.description || '' : '';
+  const desc = h('textarea', { class: 'ta', rows: '5', maxlength: '1000', placeholder: 'Description - har nayi line card me alag point banegi\n(e.g. ROOT + NONROOT + iOS / Instant delivery)' }); desc.value = p ? p.description || '' : '';
   const imgIn = h('input', { placeholder: 'Image link https://... (ya neeche se upload karo)', value: p && p.image && !p.image.startsWith('data:') ? p.image : '' });
   const imgFile = h('input', { type: 'file', accept: 'image/*' });
   const imgPrev = h('img', { style: 'max-width:100%;max-height:180px;border-radius:12px;display:' + (p && p.image ? 'block' : 'none') }); if (p && p.image) imgPrev.src = p.image;
@@ -567,7 +686,8 @@ function productForm(p, onDone) {
   imgFile.addEventListener('change', async () => { if (!imgFile.files[0]) return; try { imgData = await shrinkImage(imgFile.files[0], 640, 0.72); imgIn.value = ''; imgPrev.src = imgData; imgPrev.style.display = 'block'; toast('Image ready (' + Math.round(imgData.length / 1024) + ' KB)'); } catch (e) { toast(e.message); } });
   imgIn.addEventListener('input', () => { const v = imgIn.value.trim(); if (v) { imgData = ''; imgPrev.src = v; imgPrev.style.display = 'block'; } else if (!imgData) imgPrev.style.display = 'none'; });
   const imgClear = h('button', { class: 'btn', type: 'button' }, 'Image hatao'); imgClear.addEventListener('click', () => { imgIn.value = ''; imgData = ''; imgPrev.style.display = 'none'; imgFile.value = ''; });
-  const price = h('input', { placeholder: 'Selling price in ₹', inputmode: 'decimal', value: p ? String(p.price) : '' });
+  const pe = planEditor(p);
+  const price = h('input', { placeholder: 'Selling price in ₹ (only if no plans)', inputmode: 'decimal', value: p ? String(p.price) : '' });
   const mrp = h('input', { placeholder: 'Original price (MRP) for strike-through, optional', inputmode: 'decimal', value: p && p.mrp ? String(p.mrp) : '' });
   const badge = h('input', { placeholder: 'Badge e.g. HOT, NEW, SALE (optional)', maxlength: '16', value: p ? p.badge || '' : '' });
   const steps = h('textarea', { class: 'ta', placeholder: 'How to redeem (shown to customers), optional', maxlength: '500' }); steps.value = p ? p.steps || '' : '';
@@ -576,13 +696,17 @@ function productForm(p, onDone) {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      const body = { name: name.value, category: cat.value, description: desc.value, image: imgIn.value.trim() || imgData || '', price: Number(price.value), mrp: Number(mrp.value) || 0, badge: badge.value, steps: steps.value, featured: feat.checked };
+      const plans = pe.get();
+      const body = { name: name.value, category: cat.value, description: desc.value, image: imgIn.value.trim() || imgData || '', mrp: Number(mrp.value) || 0, badge: badge.value, steps: steps.value, featured: feat.checked };
+      if (plans.length || (p && p.plans && p.plans.length)) body.plans = plans;
+      if (!plans.length) body.price = Number(price.value);
       if (p) await api('PUT', '/api/admin/products/' + p.id, body); else await api('POST', '/api/admin/products', body);
       toast(p ? 'Saved' : 'Product added'); onDone();
     } catch (e) { toast(e.message); btn.disabled = false; }
   });
   const f = (l, el) => h('div', {}, h('label', {}, l), el);
-  return [f('Name', name), f('Category', cat), f('Description', desc), f('Product image', h('div', { class: 'stack' }, imgIn, imgFile, imgPrev, imgClear)), f('Price (₹)', price), f('MRP (₹)', mrp), f('Badge', badge), f('How to redeem', steps), h('label', { class: 'gap', style: 'align-items:center' }, feat, ' Featured (shows in Trending row on top)'), btn];
+  return [f('Name', name), f('Category', cat), f('Description', desc), f('Product image', h('div', { class: 'stack' }, imgIn, imgFile, imgPrev, imgClear)),
+    f('Time plans (duration + price)', pe.el), f('Single price (₹)', price), f('MRP (₹)', mrp), f('Badge', badge), f('How to redeem', steps), h('label', { class: 'gap', style: 'align-items:center' }, feat, ' Featured (shows in Trending row on top)'), btn];
 }
 
 async function productsView() {
@@ -594,8 +718,10 @@ async function productsView() {
       h('button', { class: 'btn primary', onclick: () => { addBox.style.display = addBox.style.display === 'none' ? 'flex' : 'none'; } }, '＋ New product'), addBox,
       h('div', { class: 'grid' }, ...(list.length ? list.map((p) => h('div', { class: 'card stack' },
         h('div', { class: 'row' }, h('h3', { style: 'margin:0' }, p.name), h('span', { class: 'tag ' + (p.active ? 'ok' : 'bad') }, p.active ? 'Live' : 'Hidden')),
-        h('div', { class: 'muted' }, [p.category, p.description].filter(Boolean).join(' • ') || '—'),
-        h('div', { class: 'row' }, h('b', { style: 'color:var(--c);font-size:20px' }, rupees(p.price)), h('span', { class: p.available <= 3 ? 'err' : 'muted' }, p.available + ' in stock • ' + p.sold + ' sold')),
+        h('div', { class: 'muted' }, [p.category, (p.description || '').split(/\r?\n/)[0]].filter(Boolean).join(' • ') || '—'),
+        p.plans && p.plans.length
+          ? h('div', { class: 'plans' }, p.plans.map((x) => h('div', { class: 'row small' + (x.active ? '' : ' muted') }, h('span', {}, x.label + (x.active ? '' : ' (hidden)')), h('span', {}, h('b', {}, rupees(x.price)), h('span', { class: x.available <= 3 ? 'err' : 'muted' }, '  ' + x.available + ' in stock • ' + x.sold + ' sold')))))
+          : h('div', { class: 'row' }, h('b', { style: 'color:var(--c);font-size:20px' }, rupees(p.price)), h('span', { class: p.available <= 3 ? 'err' : 'muted' }, p.available + ' in stock • ' + p.sold + ' sold')),
         h('div', { class: 'gap' },
           h('button', { class: 'btn primary', onclick: () => keysModal(p) }, '🔑 Keys'),
           h('button', { class: 'btn', onclick: () => { const ov = modal(h('h3', { style: 'margin:0' }, 'Edit product'), ...productForm(p, () => { ov.close(); productsView(); })); } }, 'Edit'),
@@ -608,23 +734,26 @@ async function productsView() {
 async function keysModal(p) {
   const body = h('div', { class: 'stack' }, busy());
   const ov = modal(h('div', { class: 'row' }, h('h3', { style: 'margin:0' }, '🔑 ' + p.name), h('button', { class: 'btn', onclick: () => { ov.close(); productsView(); } }, 'Close')), body);
-  let filter = 'all';
+  const plans = p.plans || [];
+  let filter = 'all', planSel = plans.length ? plans[0].id : '';
   async function paint() {
     let keys;
     try { keys = await api('GET', '/api/admin/products/' + p.id + '/keys'); } catch (e) { return body.replaceChildren(errBox(e)); }
+    const planPick = plans.length ? h('div', {}, h('label', {}, 'Add keys to which plan?'), h('select', { onchange: (e) => { planSel = e.target.value; paint(); } }, plans.map((x) => h('option', { value: x.id, selected: x.id === planSel ? 'selected' : false }, x.label + ' (' + keys.filter((k) => k.planId === x.id && k.status === 'available').length + ' available)')))) : null;
     const ta = h('textarea', { rows: '4', placeholder: 'Paste your keys, one per line' });
     const save = h('button', { class: 'btn primary' }, 'Save keys');
-    save.addEventListener('click', async () => { save.disabled = true; try { const r = await api('POST', '/api/admin/products/' + p.id + '/keys', { keys: ta.value }); toast('Added ' + r.added + (r.skipped ? ', skipped ' + r.skipped + ' duplicates' : '')); paint(); } catch (e) { toast(e.message); save.disabled = false; } });
+    save.addEventListener('click', async () => { save.disabled = true; try { const r = await api('POST', '/api/admin/products/' + p.id + '/keys', { keys: ta.value, planId: planSel || undefined }); toast('Added ' + r.added + (r.skipped ? ', skipped ' + r.skipped + ' duplicates' : '')); paint(); } catch (e) { toast(e.message); save.disabled = false; } });
     const count = h('input', { value: '10', inputmode: 'numeric' });
     const prefix = h('input', { placeholder: 'Prefix (optional)', maxlength: '10' });
     const gen = h('button', { class: 'btn' }, 'Generate');
-    gen.addEventListener('click', async () => { gen.disabled = true; try { const r = await api('POST', '/api/admin/products/' + p.id + '/generate', { count: Number(count.value), prefix: prefix.value }); toast('Generated ' + r.added + ' keys'); paint(); } catch (e) { toast(e.message); gen.disabled = false; } });
-    const shown = keys.filter((k) => filter === 'all' || k.status === filter);
-    const avail = keys.filter((k) => k.status === 'available');
+    gen.addEventListener('click', async () => { gen.disabled = true; try { const r = await api('POST', '/api/admin/products/' + p.id + '/generate', { count: Number(count.value), prefix: prefix.value, planId: planSel || undefined }); toast('Generated ' + r.added + ' keys'); paint(); } catch (e) { toast(e.message); gen.disabled = false; } });
+    const shown = keys.filter((k) => (filter === 'all' || k.status === filter) && (!plans.length || !planSel || k.planId === planSel));
+    const avail = shown.filter((k) => k.status === 'available');
     body.replaceChildren(
+      planPick,
       h('div', { class: 'card stack' }, h('h3', {}, 'Add your own keys'), ta, save),
       h('div', { class: 'card stack' }, h('h3', {}, 'Generate random keys'), h('div', { class: 'gap' }, h('div', { style: 'flex:1;min-width:90px' }, h('label', {}, 'How many'), count), h('div', { style: 'flex:2;min-width:140px' }, h('label', {}, 'Prefix'), prefix)), gen),
-      h('div', { class: 'row' }, h('b', {}, keys.length + ' keys • ' + avail.length + ' available'),
+      h('div', { class: 'row' }, h('b', {}, shown.length + ' keys • ' + avail.length + ' available'),
         h('div', { class: 'gap' }, avail.length ? h('button', { class: 'btn', onclick: () => copyText(avail.map((k) => k.value).join('\n')) }, 'Copy available') : null,
           ['all', 'available', 'sold'].map((f) => h('button', { class: 'btn' + (filter === f ? ' primary' : ''), onclick: () => { filter = f; paint(); } }, f)))),
       ...(shown.length ? shown.slice(0, 300).map((k) => h('div', { class: 'row' }, h('div', { class: 'key', style: 'flex:1' }, k.value), statusTag(k.status),

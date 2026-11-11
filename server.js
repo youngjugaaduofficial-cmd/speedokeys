@@ -247,7 +247,22 @@ setInterval(() => {
 
 const publicUser = (u) => ({ id: u.id, username: u.username, balance: rupees(u.balancePaise), createdAt: u.createdAt });
 const ratingOf = (pid) => { const r = (db.reviews || []).filter((x) => x.productId === pid); return { avg: r.length ? Math.round((r.reduce((t, x) => t + x.rating, 0) / r.length) * 10) / 10 : 0, count: r.length }; };
-const stockOf = (productId) => db.keys.filter((k) => k.productId === productId && k.status === 'available').length;
+// Duration plans: a product may have plans [{id,label,pricePaise,mrpPaise,active}]. Keys then belong to a plan (key.planId).
+const hasPlans = (p) => !!(p && Array.isArray(p.plans) && p.plans.length);
+function stockOf(productId, planId) {
+  const p = db.products.find((x) => x.id === productId);
+  const plans = hasPlans(p);
+  return db.keys.filter((k) => k.productId === productId && k.status === 'available' && (planId ? k.planId === planId : (plans ? !!k.planId : !k.planId))).length;
+}
+function unitOf(p, planId) {
+  if (hasPlans(p)) {
+    const pl = p.plans.find((x) => x.id === planId && x.active !== false);
+    if (!pl) fail(400, 'Please choose a plan');
+    return { planId: pl.id, label: pl.label, pricePaise: pl.pricePaise, mrpPaise: pl.mrpPaise || 0, name: p.name + ' - ' + pl.label };
+  }
+  return { planId: null, label: '', pricePaise: p.pricePaise, mrpPaise: p.mrpPaise || 0, name: p.name };
+}
+const takeKey = (p, planId) => db.keys.find((k) => k.productId === p.id && k.status === 'available' && (planId ? k.planId === planId : !k.planId));
 
 function addTxn(user, type, amountPaise, note) {
   user.balancePaise += amountPaise;
@@ -425,7 +440,7 @@ function readBody(req, max) {
   });
 }
 
-const PAGES = { '/': 'index.html', '/index.html': 'index.html', '/admin': 'admin.html', '/admin/': 'admin.html' };
+const PAGES = { '/': 'index.html', '/index.html': 'index.html', '/admin': 'admin.html', '/admin/': 'admin.html', '/admin.html': 'admin.html' };
 function servePage(res, file) {
   const html = fs.readFileSync(path.join(__dirname, file));
   const headers = {
@@ -602,7 +617,8 @@ route('GET', '/api/products', () =>
       featured: !!p.featured,
       steps: p.steps || '',
       rating: ratingOf(p.id),
-      inStock: db.settings.maintenanceMode ? 0 : stockOf(p.id),
+      plans: hasPlans(p) ? p.plans.filter((x) => x.active !== false).map((x) => ({ id: x.id, label: x.label, price: rupees(x.pricePaise), mrp: x.mrpPaise > x.pricePaise ? rupees(x.mrpPaise) : 0, inStock: db.settings.maintenanceMode ? 0 : stockOf(p.id, x.id) })) : [],
+      inStock: db.settings.maintenanceMode ? 0 : (hasPlans(p) ? p.plans.reduce((t, x) => t + (x.active !== false ? stockOf(p.id, x.id) : 0), 0) : stockOf(p.id)),
     }))
 );
 
@@ -700,8 +716,9 @@ function couponDiscount(code, pricePaise) {
 route('POST', '/api/coupon/check', { auth: 'user' }, ({ body }) => {
   const product = db.products.find((p) => p.id === body.productId && p.active);
   if (!product) fail(404, 'Product not found');
-  const { discountPaise } = couponDiscount(body.code, product.pricePaise);
-  return { discount: rupees(discountPaise), finalPrice: rupees(product.pricePaise - discountPaise) };
+  const unit = unitOf(product, body.planId);
+  const { discountPaise } = couponDiscount(body.code, unit.pricePaise);
+  return { discount: rupees(discountPaise), finalPrice: rupees(unit.pricePaise - discountPaise) };
 });
 
 route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
@@ -713,12 +730,13 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
   if (db.settings.maintenanceMode) fail(503, db.settings.maintenanceMessage || 'Shop is under maintenance. Please try again later.');
   const product = db.products.find((p) => p.id === body.productId && p.active);
   if (!product) fail(404, 'Product not found');
-  const { discountPaise, coupon } = couponDiscount(body.coupon, product.pricePaise);
-  const price = product.pricePaise - discountPaise;
+  const unit = unitOf(product, body.planId);
+  const { discountPaise, coupon } = couponDiscount(body.coupon, unit.pricePaise);
+  const price = unit.pricePaise - discountPaise;
   if (user.balancePaise < price) {
     return reply(402, { error: 'Not enough balance', needed: rupees(price - user.balancePaise), balance: rupees(user.balancePaise) });
   }
-  const key = db.keys.find((k) => k.productId === product.id && k.status === 'available');
+  const key = takeKey(product, unit.planId);
   if (!key) fail(409, 'Out of stock');
 
   // From here on nothing awaits, so no other request can sneak in between these steps.
@@ -727,8 +745,9 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
     userId: user.id,
     username: user.username,
     productId: product.id,
-    productName: product.name,
-    listPricePaise: product.pricePaise,
+    productName: unit.name,
+    planId: unit.planId,
+    listPricePaise: unit.pricePaise,
     pricePaise: price,
     couponCode: coupon ? coupon.code : null,
     keyId: key.id,
@@ -740,7 +759,7 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
   key.soldAt = now();
   order.costPaise = key.unitCostPaise !== undefined ? key.unitCostPaise : (product.costPaise || 0);
   if (coupon) coupon.used += 1;
-  addTxn(user, 'purchase', -price, product.name);
+  addTxn(user, 'purchase', -price, unit.name);
   db.orders.push(order);
   const earnRate = Math.max(0, Math.min(100, Number((db.settings.loyalty || {}).earnPer100) || 0));
   const earnedPoints = earnRate ? Math.floor(price / 10000 * earnRate) : 0;
@@ -758,7 +777,7 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
       referral.rewardedAt = now();
     }
   }
-  const result = { orderId: order.id, product: product.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
+  const result = { orderId: order.id, product: unit.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
   storeIdempotent('buy:' + user.id, idem, body, result);
   save();
   return result;
@@ -966,18 +985,44 @@ function adminProduct(p) {
     steps: p.steps || '',
     rating: ratingOf(p.id),
     active: p.active,
+    plans: hasPlans(p) ? p.plans.map((x) => ({ id: x.id, label: x.label, price: rupees(x.pricePaise), mrp: x.mrpPaise ? rupees(x.mrpPaise) : 0, active: x.active !== false, available: ks.filter((k) => k.planId === x.id && k.status === 'available').length, sold: ks.filter((k) => k.planId === x.id && k.status === 'sold').length })) : [],
     available: ks.filter((k) => k.status === 'available').length,
     sold: ks.filter((k) => k.status === 'sold').length,
   };
 }
-function readProductFields(body, partial) {
+function readPlans(list, existing) {
+  if (!Array.isArray(list) || list.length > 12) fail(400, 'Up to 12 duration plans');
+  const old = (existing && existing.plans) || [];
+  const seen = new Set();
+  const plans = list.map((x) => {
+    const label = String((x && x.label) || '').trim().slice(0, 30);
+    const price = Number(x && x.price);
+    const mrp = Number(x && x.mrp);
+    if (!label) fail(400, 'Every plan needs a name (e.g. 1 Hour, 24 Hours, 3 Days)');
+    if (!Number.isFinite(price) || price < 1 || price > 500000) fail(400, 'Plan "' + label + '": price must be 1 to 500000');
+    if (seen.has(label.toLowerCase())) fail(400, 'Duplicate plan name: ' + label);
+    seen.add(label.toLowerCase());
+    const id = x.id && old.some((o) => o.id === x.id) ? x.id : uid();
+    return { id, label, pricePaise: Math.round(price * 100), mrpPaise: Number.isFinite(mrp) && mrp > price ? Math.round(mrp * 100) : 0, active: x.active !== false };
+  });
+  if (existing) for (const o of old) {
+    if (!plans.some((x) => x.id === o.id) && db.keys.some((k) => k.productId === existing.id && k.planId === o.id && k.status === 'available')) fail(409, 'Plan "' + o.label + '" still has unsold keys. Delete those keys first, or hide the plan instead.');
+  }
+  return plans;
+}
+function readProductFields(body, partial, existing) {
   const out = {};
+  const wantsPlans = Array.isArray(body.plans) && body.plans.length > 0;
   if (!partial || body.name !== undefined) {
     const name = String(body.name || '').trim();
     if (!name || name.length > 100) fail(400, 'Name required (max 100 characters)');
     out.name = name;
   }
-  if (!partial || body.price !== undefined) {
+  if (body.plans !== undefined) {
+    out.plans = readPlans(body.plans, existing);
+    if (out.plans.length) out.pricePaise = Math.min(...out.plans.map((x) => x.pricePaise));
+  }
+  if (!wantsPlans && (!partial || body.price !== undefined)) {
     const price = Number(body.price);
     if (!Number.isFinite(price) || price < 1 || price > 500000) fail(400, 'Price must be 1 to 500000');
     out.pricePaise = Math.round(price * 100);
@@ -1041,7 +1086,7 @@ route('POST', '/api/admin/products', A, ({ body }) => {
 route('PUT', '/api/admin/products/:id', A, ({ params, body }) => {
   const p = db.products.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
-  Object.assign(p, readProductFields(body, true));
+  Object.assign(p, readProductFields(body, true, p));
   save();
   return adminProduct(p);
 });
@@ -1055,13 +1100,24 @@ route('DELETE', '/api/admin/products/:id', A, ({ params }) => {
   return { ok: true };
 });
 
-route('GET', '/api/admin/products/:id/keys', A, ({ params }) =>
-  db.keys.filter((k) => k.productId === params.id).map((k) => ({ id: k.id, value: k.value, status: k.status }))
-);
+// Keys of a product with duration plans must be added to one of its plans.
+function keyPlanFor(p, planId) {
+  if (hasPlans(p)) {
+    if (!p.plans.some((x) => x.id === planId)) fail(400, 'Choose which plan these keys are for');
+    return planId;
+  }
+  return null;
+}
+route('GET', '/api/admin/products/:id/keys', A, ({ params }) => {
+  const p = db.products.find((x) => x.id === params.id);
+  const label = (id) => { const pl = p && (p.plans || []).find((x) => x.id === id); return pl ? pl.label : ''; };
+  return db.keys.filter((k) => k.productId === params.id).map((k) => ({ id: k.id, value: k.value, status: k.status, planId: k.planId || null, plan: label(k.planId) }));
+});
 
 route('POST', '/api/admin/products/:id/keys', A, ({ params, body }) => {
   const p = db.products.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
+  const planId = keyPlanFor(p, body.planId);
   let list = body.keys;
   if (typeof list === 'string') list = list.split(/\r?\n/);
   if (!Array.isArray(list)) fail(400, 'keys required');
@@ -1076,7 +1132,7 @@ route('POST', '/api/admin/products/:id/keys', A, ({ params, body }) => {
       continue;
     }
     existing.add(v);
-    db.keys.push({ id: uid(), productId: p.id, value: v, status: 'available', orderId: null, addedAt: now() });
+    db.keys.push({ id: uid(), productId: p.id, planId, value: v, status: 'available', orderId: null, addedAt: now() });
     added++;
   }
   save();
@@ -1086,6 +1142,7 @@ route('POST', '/api/admin/products/:id/keys', A, ({ params, body }) => {
 route('POST', '/api/admin/products/:id/generate', A, ({ params, body }) => {
   const p = db.products.find((x) => x.id === params.id);
   if (!p) fail(404, 'Not found');
+  const planId = keyPlanFor(p, body.planId);
   const count = Math.min(Math.max(parseInt(body.count, 10) || 0, 1), 500);
   const prefix = String(body.prefix || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1097,7 +1154,7 @@ route('POST', '/api/admin/products/:id/generate', A, ({ params, body }) => {
     const v = prefix ? `${prefix}-${core}` : core;
     if (existing.has(v)) continue;
     existing.add(v);
-    db.keys.push({ id: uid(), productId: p.id, value: v, status: 'available', orderId: null, addedAt: now() });
+    db.keys.push({ id: uid(), productId: p.id, planId, value: v, status: 'available', orderId: null, addedAt: now() });
     made++;
   }
   save();
@@ -1471,7 +1528,7 @@ route('DELETE', '/api/admin/reviews/:id', A, ({ params }) => {
 });
 
 // ----- support tickets -----
-const ticketOut = (t, admin) => ({ orderId: t.orderId || null, orderName: t.orderName || '', id: t.id, subject: t.subject, status: t.status, username: admin ? t.username : undefined, messages: t.messages, createdAt: t.createdAt, updatedAt: t.updatedAt, unread: admin ? !!t.unreadAdmin : !!t.unreadUser });
+const ticketOut = (t, admin) => ({ orderId: t.orderId || null, orderName: t.orderName || '', id: t.id, subject: t.subject, status: t.status, username: admin ? t.username : undefined, messages: t.messages, createdAt: t.createdAt, updatedAt: t.updatedAt, unread: admin ? !!t.unreadAdmin : !!t.unreadUser, peerUnread: admin ? !!t.unreadUser : !!t.unreadAdmin });
 const cleanText = (v, min, max, what) => { const t = String(v || '').trim(); if (t.length < min || t.length > max) fail(400, `${what} must be ${min} to ${max} characters`); return t; };
 route('GET', '/api/tickets', { auth: 'user' }, ({ user }) => db.tickets.filter((t) => t.userId === user.id).sort((a, b) => b.updatedAt - a.updatedAt).map((t) => ticketOut(t)));
 route('POST', '/api/tickets', { auth: 'user' }, ({ user, body }) => {
@@ -1509,6 +1566,11 @@ route('POST', '/api/admin/tickets/:id/reply', A, ({ params, body }) => {
   t.updatedAt = now(); t.unreadUser = true; t.unreadAdmin = false;
   save();
   return ticketOut(t, true);
+});
+route('POST', '/api/admin/tickets/:id/read', A, ({ params }) => {
+  const t = db.tickets.find((x) => x.id === params.id);
+  if (t && t.unreadAdmin) { t.unreadAdmin = false; save(); }
+  return { ok: true };
 });
 route('POST', '/api/admin/tickets/:id/close', A, ({ params, body }) => {
   const t = db.tickets.find((x) => x.id === params.id);
@@ -1610,10 +1672,11 @@ function cartLines(items) {
     if (!p) fail(404, 'A product in your cart is no longer available');
     const qty = Math.floor(Number(it.qty));
     if (!(qty >= 1 && qty <= 10)) fail(400, 'Quantity must be 1 to 10');
-    if (lines.some((l) => l.p.id === p.id)) fail(400, 'Duplicate product in cart');
-    const stock = stockOf(p.id);
-    if (stock < qty) fail(409, stock ? `${p.name}: only ${stock} left in stock` : `${p.name} is out of stock`);
-    lines.push({ p, qty }); subtotal += p.pricePaise * qty;
+    const unit = unitOf(p, it.planId);
+    if (lines.some((l) => l.p.id === p.id && l.unit.planId === unit.planId)) fail(400, 'Duplicate product in cart');
+    const stock = stockOf(p.id, unit.planId);
+    if (stock < qty) fail(409, stock ? `${unit.name}: only ${stock} left in stock` : `${unit.name} is out of stock`);
+    lines.push({ p, qty, unit }); subtotal += unit.pricePaise * qty;
   }
   return { lines, subtotal };
 }
@@ -1635,22 +1698,22 @@ route('POST', '/api/checkout', { auth: 'user' }, ({ user, body, req }) => {
   if (user.balancePaise < total) return reply(402, { error: 'Not enough balance', needed: rupees(total - user.balancePaise), balance: rupees(user.balancePaise) });
   // Nothing below awaits, so the whole allocation is atomic inside this process.
   const units = [];
-  for (const { p, qty } of lines) for (let n = 0; n < qty; n++) units.push({ p, share: Math.floor((discountPaise * p.pricePaise) / subtotal) });
+  for (const { p, qty, unit } of lines) for (let n = 0; n < qty; n++) units.push({ p, unit, share: Math.floor((discountPaise * unit.pricePaise) / subtotal) });
   units[0].share += discountPaise - units.reduce((t, u) => t + u.share, 0);
   const groupId = uid(), items = [];
   for (const u of units) {
-    const key = db.keys.find((k) => k.productId === u.p.id && k.status === 'available');
-    const order = { id: uid(), groupId, userId: user.id, username: user.username, productId: u.p.id, productName: u.p.name, listPricePaise: u.p.pricePaise, pricePaise: Math.max(0, u.p.pricePaise - u.share), costPaise: key.unitCostPaise !== undefined ? key.unitCostPaise : (u.p.costPaise || 0), couponCode: coupon ? coupon.code : null, keyId: key.id, status: 'completed', createdAt: now() };
+    const key = takeKey(u.p, u.unit.planId);
+    const order = { id: uid(), groupId, userId: user.id, username: user.username, productId: u.p.id, productName: u.unit.name, planId: u.unit.planId, listPricePaise: u.unit.pricePaise, pricePaise: Math.max(0, u.unit.pricePaise - u.share), costPaise: key.unitCostPaise !== undefined ? key.unitCostPaise : (u.p.costPaise || 0), couponCode: coupon ? coupon.code : null, keyId: key.id, status: 'completed', createdAt: now() };
     key.status = 'sold'; key.orderId = order.id; key.soldAt = now();
     db.orders.push(order);
     const earnRate = Math.max(0, Math.min(100, Number((db.settings.loyalty || {}).earnPer100) || 0));
     const earnedPoints = earnRate ? Math.floor(order.pricePaise / 10000 * earnRate) : 0;
     if (earnedPoints) db.loyaltyLedger.push({ id: uid(), userId: user.id, points: earnedPoints, type: 'purchase', orderId: order.id, note: 'Purchase reward', createdAt: now() });
     if (user.affiliateId) { const aff = db.affiliates.find(a => a.id === user.affiliateId && a.active); if (aff && !db.affiliateEvents.some(e => e.type === 'commission' && e.orderId === order.id)) { db.affiliateEvents.push({ id: uid(), affiliateId: aff.id, type: 'conversion', orderId: order.id, userId: user.id, createdAt: now() }); db.affiliateEvents.push({ id: uid(), affiliateId: aff.id, type: 'commission', orderId: order.id, userId: user.id, amountPaise: Math.floor(order.pricePaise * aff.rate / 100), status: 'pending', createdAt: now() }); } }
-    items.push({ orderId: order.id, product: u.p.name, key: key.value, paid: rupees(order.pricePaise) });
+    items.push({ orderId: order.id, product: u.unit.name, key: key.value, paid: rupees(order.pricePaise) });
   }
   if (coupon) coupon.used += 1;
-  addTxn(user, 'purchase', -total, units.length === 1 ? units[0].p.name : units.length + ' items');
+  addTxn(user, 'purchase', -total, units.length === 1 ? units[0].unit.name : units.length + ' items');
   const referral = db.referrals.find((r) => r.referredUserId === user.id && r.status === 'pending');
   if (referral && referral.referrerId !== user.id) {
     const referrer = db.users.find((x) => x.id === referral.referrerId && !x.banned);
@@ -1770,7 +1833,7 @@ route('GET','/api/admin/suppliers',A,()=>db.suppliers.map(s=>({...s,batches:db.s
 route('POST','/api/admin/suppliers',A,({body})=>{const x={id:uid(),name:cleanText(body.name,2,100,'Supplier name'),contact:moduleText(body.contact,120),email:moduleText(body.email,120),notes:moduleText(body.notes,500),active:body.active!==false,createdAt:now()};db.suppliers.push(x);save();return reply(201,x);});
 route('PUT','/api/admin/suppliers/:id',A,({params,body})=>{const x=db.suppliers.find(s=>s.id===params.id);if(!x)fail(404,'Supplier not found');for(const k of ['name','contact','email','notes'])if(body[k]!==undefined)x[k]=k==='name'?cleanText(body[k],2,100,'Supplier name'):moduleText(body[k],500);if(body.active!==undefined)x.active=!!body.active;save();return x;});
 route('GET','/api/admin/supplier-batches',A,()=>db.supplierBatches.slice().sort((a,b)=>b.createdAt-a.createdAt).map(b=>({...b,product:(db.products.find(p=>p.id===b.productId)||{}).name||'Deleted product',supplier:(db.suppliers.find(s=>s.id===b.supplierId)||{}).name||'Deleted supplier'})));
-route('POST','/api/admin/supplier-batches',A,({body})=>{const supplier=db.suppliers.find(s=>s.id===body.supplierId&&s.active),product=db.products.find(p=>p.id===body.productId);if(!supplier||!product)fail(400,'Choose an active supplier and valid product');if(!Array.isArray(body.keys)||!body.keys.length||body.keys.length>500)fail(400,'Upload 1 to 500 codes');const codes=body.keys.map(k=>String(k).trim()).filter(Boolean);if(codes.length!==body.keys.length||codes.some(k=>k.length>300)||new Set(codes).size!==codes.length)fail(400,'Codes must be unique and valid');const cost=Number(body.unitCost);if(!Number.isFinite(cost)||cost<0||cost>10000000)fail(400,'Invalid unit cost');const batchId=uid(),at=now();for(const value of codes)db.keys.push({id:uid(),productId:product.id,value,status:'available',addedAt:at,supplierId:supplier.id,batchId,unitCostPaise:Math.round(cost*100)});const batch={id:batchId,supplierId:supplier.id,productId:product.id,quantity:codes.length,unitCostPaise:Math.round(cost*100),reference:moduleText(body.reference,100),createdAt:at};db.supplierBatches.push(batch);save();return reply(201,batch);});
+route('POST','/api/admin/supplier-batches',A,({body})=>{const supplier=db.suppliers.find(s=>s.id===body.supplierId&&s.active),product=db.products.find(p=>p.id===body.productId);if(!supplier||!product)fail(400,'Choose an active supplier and valid product');const planId=keyPlanFor(product,body.planId);if(!Array.isArray(body.keys)||!body.keys.length||body.keys.length>500)fail(400,'Upload 1 to 500 codes');const codes=body.keys.map(k=>String(k).trim()).filter(Boolean);if(codes.length!==body.keys.length||codes.some(k=>k.length>300)||new Set(codes).size!==codes.length)fail(400,'Codes must be unique and valid');const cost=Number(body.unitCost);if(!Number.isFinite(cost)||cost<0||cost>10000000)fail(400,'Invalid unit cost');const batchId=uid(),at=now();for(const value of codes)db.keys.push({id:uid(),productId:product.id,planId,value,status:'available',addedAt:at,supplierId:supplier.id,batchId,unitCostPaise:Math.round(cost*100)});const batch={id:batchId,supplierId:supplier.id,productId:product.id,planId,quantity:codes.length,unitCostPaise:Math.round(cost*100),reference:moduleText(body.reference,100),createdAt:at};db.supplierBatches.push(batch);save();return reply(201,batch);});
 
 // Affiliate tracking: explicit referral attribution, commission ledger and manual payout workflow.
 route('GET','/api/admin/affiliates',A,()=>db.affiliates.map(a=>({...a,clicks:db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='click').length,conversions:db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='conversion').length,unpaidPaise:db.affiliateEvents.filter(e=>e.affiliateId===a.id&&e.type==='commission'&&e.status==='pending').reduce((n,e)=>n+e.amountPaise,0)})));
@@ -1787,7 +1850,7 @@ route('GET','/api/admin/seo',A,()=>db.seoPages);
 route('PUT','/api/admin/seo/:slug',A,({params,body})=>{const slug=String(params.slug).toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,80);if(!slug)fail(400,'Invalid page slug');db.seoPages[slug]={title:cleanText(body.title,2,70,'SEO title'),description:cleanText(body.description,10,180,'Meta description'),canonical:moduleText(body.canonical,300),noindex:!!body.noindex,updatedAt:now()};save();return db.seoPages[slug];});
 
 // Gift purchases: wallet-paid, inventory-backed and recipient-bound. Gift code only visible to recipient.
-route('POST','/api/gifts/buy',{auth:'user'},({user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.gifts.find(g=>g.buyerId===user.id&&g.idem===idem);if(prior)return {id:prior.id,product:prior.productName,status:prior.status,recipient:prior.recipient,replayed:true};}const p=db.products.find(x=>x.id===body.productId&&x.active),recipient=cleanText(body.recipient,3,120,'Recipient');if(!p)fail(404,'Product not found');if(user.balancePaise<p.pricePaise)fail(402,'Not enough wallet balance');const key=db.keys.find(k=>k.productId===p.id&&k.status==='available');if(!key)fail(409,'Out of stock');const recipientUser=db.users.find(u=>u.username.toLowerCase()===recipient.toLowerCase());if(!recipientUser)fail(400,'Recipient must have an existing store account. External email delivery is not configured.');if(recipientUser.id===user.id)fail(400,'Choose another store account as the gift recipient.');const id=uid();key.status='gift';key.giftId=id;const g={id,buyerId:user.id,idem:idem||null,recipient,recipientUserId:recipientUser.id,productId:p.id,productName:p.name,keyId:key.id,message:moduleText(body.message,300),status:'sent',createdAt:now()};user.balancePaise-=p.pricePaise;addTxn(user,'gift_purchase',-p.pricePaise,'Gift: '+p.name);db.gifts.push(g);save();return reply(201,{id,product:p.name,status:g.status,recipient});});
+route('POST','/api/gifts/buy',{auth:'user'},({user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.gifts.find(g=>g.buyerId===user.id&&g.idem===idem);if(prior)return {id:prior.id,product:prior.productName,status:prior.status,recipient:prior.recipient,replayed:true};}const p=db.products.find(x=>x.id===body.productId&&x.active),recipient=cleanText(body.recipient,3,120,'Recipient');if(!p)fail(404,'Product not found');const unit=unitOf(p,body.planId);if(user.balancePaise<unit.pricePaise)fail(402,'Not enough wallet balance');const key=takeKey(p,unit.planId);if(!key)fail(409,'Out of stock');const recipientUser=db.users.find(u=>u.username.toLowerCase()===recipient.toLowerCase());if(!recipientUser)fail(400,'Recipient must have an existing store account. External email delivery is not configured.');if(recipientUser.id===user.id)fail(400,'Choose another store account as the gift recipient.');const id=uid();key.status='gift';key.giftId=id;const g={id,buyerId:user.id,idem:idem||null,recipient,recipientUserId:recipientUser.id,productId:p.id,planId:unit.planId,productName:unit.name,keyId:key.id,message:moduleText(body.message,300),status:'sent',createdAt:now()};user.balancePaise-=unit.pricePaise;addTxn(user,'gift_purchase',-unit.pricePaise,'Gift: '+unit.name);db.gifts.push(g);save();return reply(201,{id,product:unit.name,status:g.status,recipient});});
 route('GET','/api/admin/gifts',A,()=>db.gifts.slice().sort((a,b)=>b.createdAt-a.createdAt).map(g=>({id:g.id,recipient:g.recipient,product:g.productName,status:g.status,createdAt:g.createdAt,buyer:(db.users.find(u=>u.id===g.buyerId)||{}).username||'Unknown'})));
 route('GET','/api/gifts/sent',{auth:'user'},({user})=>db.gifts.filter(g=>g.buyerId===user.id).map(g=>({id:g.id,recipient:g.recipient,product:g.productName,status:g.status,createdAt:g.createdAt,message:g.message})));
 route('GET','/api/gifts/received',{auth:'user'},({user})=>db.gifts.filter(g=>g.recipientUserId===user.id).map(g=>({id:g.id,product:g.productName,status:g.status,message:g.message,createdAt:g.createdAt,code:(db.keys.find(k=>k.id===g.keyId)||{}).value||null})));
@@ -1801,9 +1864,9 @@ route('PUT','/api/admin/loyalty',A,({body})=>{const earn=Math.floor(Number(body.
 // Product bundles: atomic stock validation and allocation in one synchronous handler.
 route('GET','/api/bundles',()=>db.bundles.filter(b=>b.active).map(b=>({...b,items:b.items.map(i=>({productId:i.productId,quantity:i.quantity,product:(db.products.find(p=>p.id===i.productId)||{}).name||'Unavailable'}))})));
 route('GET','/api/admin/bundles',A,()=>db.bundles);
-route('POST','/api/admin/bundles',A,({body})=>{const name=cleanText(body.name,3,80,'Bundle name');if(!Array.isArray(body.items)||body.items.length<2||body.items.length>8)fail(400,'Bundle needs 2 to 8 products');const items=body.items.map(i=>({productId:String(i.productId),quantity:Math.max(1,Math.min(5,Math.floor(Number(i.quantity)||1)))}));if(items.some(i=>!db.products.some(p=>p.id===i.productId&&p.active)))fail(400,'Invalid bundle product');const price=Number(body.price);if(!Number.isFinite(price)||price<=0)fail(400,'Invalid bundle price');const b={id:uid(),name,description:moduleText(body.description,300),items,pricePaise:Math.round(price*100),active:true,createdAt:now()};db.bundles.push(b);save();return reply(201,b);});
+route('POST','/api/admin/bundles',A,({body})=>{const name=cleanText(body.name,3,80,'Bundle name');if(!Array.isArray(body.items)||body.items.length<2||body.items.length>8)fail(400,'Bundle needs 2 to 8 products');const items=body.items.map(i=>({productId:String(i.productId),quantity:Math.max(1,Math.min(5,Math.floor(Number(i.quantity)||1)))}));if(items.some(i=>!db.products.some(p=>p.id===i.productId&&p.active)))fail(400,'Invalid bundle product');if(items.some(i=>hasPlans(db.products.find(p=>p.id===i.productId))))fail(400,'Products with duration plans cannot be used in bundles yet');const price=Number(body.price);if(!Number.isFinite(price)||price<=0)fail(400,'Invalid bundle price');const b={id:uid(),name,description:moduleText(body.description,300),items,pricePaise:Math.round(price*100),active:true,createdAt:now()};db.bundles.push(b);save();return reply(201,b);});
 route('PUT','/api/admin/bundles/:id',A,({params,body})=>{const b=db.bundles.find(x=>x.id===params.id);if(!b)fail(404,'Bundle not found');if(body.active!==undefined)b.active=!!body.active;if(body.price!==undefined){const n=Number(body.price);if(!Number.isFinite(n)||n<=0)fail(400,'Invalid price');b.pricePaise=Math.round(n*100);}save();return b;});
-route('POST','/api/bundles/:id/buy',{auth:'user'},({params,user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.orders.find(o=>o.userId===user.id&&o.bundleId===params.id&&o.idem===idem);if(prior){const group=db.orders.filter(o=>o.groupId===prior.groupId);return {groupId:prior.groupId,items:group.map(o=>({orderId:o.id,product:o.productName,key:(db.keys.find(k=>k.id===o.keyId)||{}).value})),paid:rupees(group.reduce((n,o)=>n+o.pricePaise,0)),balance:rupees(user.balancePaise),replayed:true};}}const b=db.bundles.find(x=>x.id===params.id&&x.active);if(!b)fail(404,'Bundle not found');const units=[];for(const i of b.items){const p=db.products.find(x=>x.id===i.productId&&x.active);if(!p)fail(409,'Bundle product unavailable');const keys=db.keys.filter(k=>k.productId===p.id&&k.status==='available');if(keys.length<i.quantity)fail(409,'Bundle is out of stock');for(let n=0;n<i.quantity;n++)units.push({p,key:keys[n]});}if(user.balancePaise<b.pricePaise)fail(402,'Not enough wallet balance');user.balancePaise-=b.pricePaise;const groupId=uid(),items=[],baseShare=Math.floor(b.pricePaise/units.length),remainder=b.pricePaise-baseShare*units.length;for(let index=0;index<units.length;index++){const u=units[index];u.key.status='sold';u.key.orderId=uid();u.key.soldAt=now();const o={id:u.key.orderId,groupId,userId:user.id,username:user.username,productId:u.p.id,productName:u.p.name,pricePaise:baseShare+(index<remainder?1:0),costPaise:u.key.unitCostPaise!==undefined?u.key.unitCostPaise:(u.p.costPaise||0),keyId:u.key.id,status:'completed',createdAt:now(),bundleId:b.id,idem:idem||null};db.orders.push(o);items.push({orderId:o.id,product:u.p.name,key:u.key.value});}addTxn(user,'purchase',-b.pricePaise,'Bundle: '+b.name);save();return {groupId,items,paid:rupees(b.pricePaise),balance:rupees(user.balancePaise)};});
+route('POST','/api/bundles/:id/buy',{auth:'user'},({params,user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.orders.find(o=>o.userId===user.id&&o.bundleId===params.id&&o.idem===idem);if(prior){const group=db.orders.filter(o=>o.groupId===prior.groupId);return {groupId:prior.groupId,items:group.map(o=>({orderId:o.id,product:o.productName,key:(db.keys.find(k=>k.id===o.keyId)||{}).value})),paid:rupees(group.reduce((n,o)=>n+o.pricePaise,0)),balance:rupees(user.balancePaise),replayed:true};}}const b=db.bundles.find(x=>x.id===params.id&&x.active);if(!b)fail(404,'Bundle not found');const units=[];for(const i of b.items){const p=db.products.find(x=>x.id===i.productId&&x.active);if(!p)fail(409,'Bundle product unavailable');const keys=db.keys.filter(k=>k.productId===p.id&&k.status==='available'&&!k.planId);if(hasPlans(p)||keys.length<i.quantity)fail(409,'Bundle is out of stock');for(let n=0;n<i.quantity;n++)units.push({p,key:keys[n]});}if(user.balancePaise<b.pricePaise)fail(402,'Not enough wallet balance');user.balancePaise-=b.pricePaise;const groupId=uid(),items=[],baseShare=Math.floor(b.pricePaise/units.length),remainder=b.pricePaise-baseShare*units.length;for(let index=0;index<units.length;index++){const u=units[index];u.key.status='sold';u.key.orderId=uid();u.key.soldAt=now();const o={id:u.key.orderId,groupId,userId:user.id,username:user.username,productId:u.p.id,productName:u.p.name,pricePaise:baseShare+(index<remainder?1:0),costPaise:u.key.unitCostPaise!==undefined?u.key.unitCostPaise:(u.p.costPaise||0),keyId:u.key.id,status:'completed',createdAt:now(),bundleId:b.id,idem:idem||null};db.orders.push(o);items.push({orderId:o.id,product:u.p.name,key:u.key.value});}addTxn(user,'purchase',-b.pricePaise,'Bundle: '+b.name);save();return {groupId,items,paid:rupees(b.pricePaise),balance:rupees(user.balancePaise)};});
 
 // Community: moderated text-only posts, replies, reporting and verified buyer marker.
 route('GET','/api/community',()=>db.communityPosts.filter(p=>p.status==='published').slice(-100).reverse().map(p=>({...p,replies:(p.replies||[]).slice(-20)})));
