@@ -260,10 +260,10 @@ const NAV = [
   ['Overview', [['dash', 'Dashboard', 'chart']]],
   ['Catalog', [['products', 'Products', 'game'], ['banners', 'Banners', 'image']]],
   ['Sales', [['orders', 'Orders', 'receipt'], ['payments', 'Payments', 'card'], ['coupons', 'Coupons', 'tag']]],
-  ['People', [['users', 'Users', 'users'], ['tickets', 'Support tickets', 'chat'], ['reviews', 'Reviews', 'star']]],
-  ['Engage', [['notices', 'Notices & push', 'bell'], ['growth', 'Growth & limits', 'rocket']]],
-  ['Growth & Operations', [['operations','Operations Center','chart'],['suppliers','Suppliers','users'],['affiliates','Affiliates','rocket'],['seo','SEO Manager','search'],['gifts','Gift Orders','card'],['loyalty','Loyalty','star'],['bundles','Bundles','game'],['advanced','Advanced Analytics','chart'],['community','Community','chat']]],
-  ['System', [['look', 'Appearance', 'palette'], ['security', 'Security & system', 'shield'], ['activity', 'Activity log', 'list'], ['settings', 'Settings', 'gear']]],
+  ['People', [['users', 'Users', 'users'], ['tickets', 'Support tickets', 'chat']]],
+  ['Engage', [['notices', 'Notices & push', 'bell']]],
+  ['Operations', [['operations','Operations Center','chart'],['suppliers','Suppliers','users']]],
+  ['System', [['security', 'Security & system', 'shield'], ['activity', 'Activity log', 'list'], ['settings', 'Settings', 'gear']]],
 ];
 const TITLES = Object.fromEntries(NAV.flatMap(([, l]) => l.map(([k, t]) => [k, t])));
 let badges = {};

@@ -206,6 +206,25 @@ nav#nav .di.out{color:#ff5d73}.dic{display:grid;place-items:center;width:40px;he
 .dh .ib{width:44px;height:44px;flex:none;border-radius:14px}.logo{white-space:nowrap;font-size:17px;letter-spacing:.5px}.dt{font-weight:800}
 #addf,#wal,#login,#reg{white-space:nowrap;padding:0 12px;font-size:14px}
 .logo{min-width:0;overflow:hidden;text-overflow:ellipsis}.bar>*{flex-shrink:0}.bar>.logo{flex-shrink:1}a.btn.full{padding:14px 12px;line-height:1.2}
+
+/* v2.6 store layout */
+.wb{display:flex;justify-content:space-between;align-items:center;padding:20px;border:1px solid var(--ac);border-radius:18px;background:var(--s1);box-shadow:0 0 24px #00e5ff22;font-weight:800;letter-spacing:.08em;color:#4fc3f7;margin:6px 0 14px}.wb b{color:var(--ac);font-size:24px;text-shadow:0 0 12px #00e5ff77}
+.htb{width:auto;text-align:left;font-weight:800;letter-spacing:.1em}
+.sh{margin:22px 0 10px;font:800 17px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:#29b6f6;text-shadow:0 0 12px #29b6f655}
+.sb{display:flex;align-items:center;gap:10px;padding:2px 16px;border:1px solid var(--ac);border-radius:18px;background:var(--s1)}.sb input{border:0;background:0;box-shadow:none;flex:1}
+.fd{padding:18px;border:1px solid var(--ln);border-radius:20px;background:var(--s1)}.fl2{font-weight:800;letter-spacing:.2em;color:#29b6f6;margin:4px 0 10px}.fl2.or{color:#f59e0b;margin-top:18px}
+.chips{display:flex;flex-wrap:wrap;gap:10px}.ch{padding:12px 20px;border-radius:14px;border:1px solid var(--ln);background:#0a1220;color:var(--mu);font-weight:800;letter-spacing:.1em;cursor:pointer;transition:.2s}.ch.on{background:#00b4ff;color:#03121c;border-color:#00b4ff;box-shadow:0 0 18px #00b4ff66}
+.or .ch{border-color:#6b4a12;color:#f59e0b}.or .ch.on{background:#f59e0b;color:#1a1004;border-color:#f59e0b;box-shadow:0 0 18px #f59e0b66}
+.pgrid{display:grid;gap:18px}.pc{border:1px solid var(--ln);border-radius:22px;background:var(--s1);overflow:hidden;padding-bottom:14px;animation:rise .5s both var(--ease-out);transition:transform .25s,box-shadow .25s}.pc:hover{transform:translateY(-3px);box-shadow:0 0 28px #00e5ff33}
+.pf{position:relative;height:190px;display:grid;place-items:center}.ini{font:800 64px system-ui;color:#ffffff40;letter-spacing:.1em}
+.tags{position:absolute;top:12px;left:12px;display:flex;gap:8px}.tg{padding:7px 12px;border-radius:12px;font-weight:800;font-size:13px;border:1px solid #fff3;background:#0008;backdrop-filter:blur(4px)}.tg.g{color:#5eead4}.tg.b{color:#c4b5fd}
+.mt{padding:14px 22px;border:2px solid var(--rd);border-radius:999px;background:#12030a;color:var(--rd);font-weight:800;letter-spacing:.15em;box-shadow:0 0 22px #ff4d6d66}
+.pn{margin:14px 16px 8px;font:800 21px system-ui}.pi{margin:0 16px 10px;padding:14px;border:1px solid var(--ln);border-left:4px solid #0b86a6;border-radius:12px;background:#080c14;color:var(--mu)}
+.pp{display:flex;align-items:baseline;gap:10px;margin:0 16px 12px}.pp b{font-size:24px;color:var(--ac)}.pp s{color:var(--mu)}.pp em{margin-left:auto;font-style:normal;color:#5eead4;font-size:13px}
+.pu{width:calc(100% - 32px);margin:0 16px;min-height:54px;font-weight:800;letter-spacing:.12em}.pc.dn .pu{background:#1d0b10;border:1px solid #6b1d2b;color:#9b3a4d;box-shadow:none}
+@media(min-width:700px){.pgrid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}}
+.pc{box-sizing:border-box;width:100%;min-width:0}.pu{box-sizing:border-box}.pgrid>*{min-width:0}
+.pc .pu.btn{width:calc(100% - 32px);max-width:none;display:block;margin:0 16px;box-sizing:border-box}
 </style>
 </head>
 <body>
@@ -250,23 +269,25 @@ addEventListener('scroll',()=>$('header').classList.toggle('sc',scrollY>8),{pass
 addEventListener('pointerdown',e=>{const b=e.target.closest&&e.target.closest('.btn');if(!b)return;const r=b.getBoundingClientRect(),d=Math.max(r.width,r.height),x=h('span',{class:'rp',style:`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`});b.append(x);setTimeout(()=>x.remove(),600)});
 $('#logo').onclick=()=>go('shop');
 function draw(){const v=$('#view');v.replaceChildren(...[cfg.maintenanceMode&&h('div',{class:'maint'},cfg.maintenanceMessage),cfg.announcement&&h('div',{class:'ann'},h('span',{class:cfg.announcement.length>45?'mq':''},cfg.announcement))].filter(Boolean));
-v.classList.remove('pg');void v.offsetWidth;v.classList.add('pg');({dash:dashView,history:histView,shop,wallet,orders,refer,help,account:account,me:account,extras:extrasView,bundles:bundlesView,community:communityView,loyalty:loyaltyView,gifts:giftsView})[tab](v)}
+v.classList.remove('pg');void v.offsetWidth;v.classList.add('pg');({dash:dashView,history:histView,shop,wallet,orders,refer,help,account:account,me:account,})[tab](v)}
 function exportCsv(o){const q=x=>'"'+String(x??'').replace(/"/g,'""').replace(/^([=+\-@])/,"'$1")+'"';const rows=[['Date','Product','Code','Paid']].concat(o.map(x=>[D(x.createdAt),x.product,x.key||'',x.paid]));const b=new Blob([rows.map(r=>r.map(q).join(',')).join('\n')],{type:'text/csv'});const a=h('a',{href:URL.createObjectURL(b),download:'my-codes.csv'});document.body.append(a);a.click();a.remove()}
 function howToBuy(){modal(h('h2',{},'How to buy'),h('ol',{style:'line-height:1.9;padding-left:20px'},h('li',{},'Register karo ya login karo'),h('li',{},'Wallet me UPI se paise add karo'),h('li',{},'Product chuno aur Buy dabao'),h('li',{},'Code turant My Codes me mil jayega')),cfg.howtoVideo&&h('a',{class:'btn p full',href:cfg.howtoVideo,target:'_blank',rel:'noopener',style:'display:block;text-align:center;text-decoration:none'},'Video dekho'))}
+let av='all';
 function shop(v){
-v.append(h('div',{class:'hero'},h('h1',{},'Game keys, ',h('span',{},'seconds'),' mein.'),h('p',{},'Wallet mein coins add karo, key kharido, turant mil jayegi.'),h('div',{class:'quick'},h('button',{class:'btn p',onclick:()=>document.querySelector('.tools')?.scrollIntoView({behavior:'smooth',block:'center'})},'Explore store  →')),h('div',{class:'trust'},h('i',{},'Instant delivery'),h('i',{},'Encrypted keys'),h('i',{},'Wallet refund'))));
-v.append(h('button',{class:'btn htb',onclick:howToBuy},'▶ HOW TO BUY & HOW TO USE'));const sl=h('div',{class:'slider',hidden:true});v.append(sl);slider(sl);
-const cats=['All','♥ Saved',...new Set((products||[]).map(p=>p.category).filter(Boolean))];
-const grid=h('div',{class:'grid'}),cw=h('div',{class:'cats'}),tr=h('div',{});
-const paint=()=>{cw.replaceChildren(...cats.map(c=>h('button',{class:'cat'+(c===cat?' on':''),onclick:()=>{cat=c;paint()}},c)));
-const feat=(products||[]).filter(p=>p.featured&&p.inStock>0);tr.replaceChildren(...(feat.length&&cat==='All'&&!q?[h('div',{class:'sec'},h('h3',{},'Trending')),h('div',{class:'hs'},feat.map((p,i)=>card(p,i)))]:[]));
-if(!products){grid.replaceChildren(...Array(8).fill(0).map(()=>h('div',{class:'sk'})));return}
-let l=products.filter(p=>(cat==='All'||(cat==='♥ Saved'?favs.includes(p.id):p.category===cat))&&(p.name+p.description).toLowerCase().includes(q.toLowerCase()));
-if(sort==='lo')l.sort((a,b)=>a.price-b.price);if(sort==='hi')l.sort((a,b)=>b.price-a.price);if(sort==='pop')l.sort((a,b)=>(b.inStock>0)-(a.inStock>0));
-grid.replaceChildren(...(l.length?l.map((p,i)=>card(p,i)):[h('div',{class:'empty'},cat==='♥ Saved'?'Abhi koi saved key nahi. Card par ♡ dabao.':'Kuch nahi mila. Doosra search try karo.')]))};
-v.append(h('div',{class:'tools'},h('input',{placeholder:'Search keys...','aria-label':'Search',value:q,oninput:e=>{q=e.target.value;paint()}}),h('select',{'aria-label':'Sort',onchange:e=>{sort=e.target.value;paint()}},...[['pop','In stock pehle'],['lo','Price: low'],['hi','Price: high']].map(([a,b])=>h('option',{value:a,selected:sort===a},b)))),cw,tr,grid);paint()}
-function card(p,i){const x=hue(p.name),fv=h('button',{class:'fav'+(favs.includes(p.id)?' on':''),'aria-label':'Save',onclick:e=>{e.stopPropagation();favs=favs.includes(p.id)?favs.filter(i=>i!==p.id):[...favs,p.id];st.set('ks_fav',JSON.stringify(favs));fv.classList.toggle('on');fv.textContent=favs.includes(p.id)?'♥':'♡'}},favs.includes(p.id)?'♥':'♡'),f=h('div',{class:'face','data-i':p.name.slice(0,2).toUpperCase(),style:`background:radial-gradient(120% 120% at 0% 0%,hsl(${(x+40)%360} 95% 72%),transparent 60%),linear-gradient(135deg,hsl(${x} 85% 60%),hsl(${(x+55)%360} 85% 48%))`},h('span',{class:'fl'},p.category||'Digital key'),p.badge&&h('span',{class:'bd'},p.badge),p.inStock>0&&p.inStock<=5&&h('em',{class:'rb'},'Only '+p.inStock+' left'));
-return h('div',{class:'card',style:'--i:'+Math.min(i,12)+';position:relative',onclick:()=>buyModal(p),onpointermove:e=>{if(e.pointerType!=='mouse')return;const t=e.currentTarget,r=t.getBoundingClientRect();t.style.setProperty('--rx',(-((e.clientY-r.top)/r.height-.5)*8)+'deg');t.style.setProperty('--ry',(((e.clientX-r.left)/r.width-.5)*10)+'deg')},onpointerleave:e=>{e.currentTarget.style.setProperty('--rx','0deg');e.currentTarget.style.setProperty('--ry','0deg')}},fv,f,h('div',{class:'cb'},h('b',{},p.name),h('small',{},p.description?p.description.slice(0,42):'Instant digital key'),p.rating&&p.rating.count>0&&h('div',{class:'rt'},stars(p.rating.avg),' ',h('em',{},p.rating.avg+' ('+p.rating.count+')')),h('div',{class:'pr'},h('span',{},h('b',{},R(p.price)),p.mrp>p.price&&h('span',{class:'old'},R(p.mrp)),p.mrp>p.price&&h('span',{class:'off'},Math.round((1-p.price/p.mrp)*100)+'% off')),h('span',{class:'tag'+(p.inStock?'':' out')},p.inStock?(p.inStock<=5?'Only '+p.inStock:'Instant'):'Out'))))}
+v.append(h('div',{class:'wb'},h('span',{},'💰 WALLET BALANCE'),h('b',{},R(me?me.balance:0))),h('button',{class:'btn htb',onclick:howToBuy},'▶ HOW TO BUY & HOW TO USE'));
+const sl=h('div',{class:'slider',hidden:true});v.append(sl);slider(sl);
+const cats=['All',...new Set((products||[]).map(p=>p.category).filter(Boolean))],cw=h('div',{class:'chips'}),aw=h('div',{class:'chips or'}),grid=h('div',{class:'pgrid'});
+const paint=()=>{cw.replaceChildren(...cats.map(c=>h('button',{class:'ch'+(c===cat?' on':''),onclick:()=>{cat=c;paint()}},c.toUpperCase())));
+aw.replaceChildren(...[['all','ALL STOCK'],['in','IN STOCK']].map(([k,l])=>h('button',{class:'ch'+(av===k?' on':''),onclick:()=>{av=k;paint()}},l)));
+if(!products){grid.replaceChildren(...Array(4).fill(0).map(()=>h('div',{class:'sk'})));return}
+const l=products.filter(p=>(cat==='All'||p.category===cat)&&(av==='all'||p.inStock>0)&&(p.name+(p.description||'')).toLowerCase().includes(q.toLowerCase()));
+grid.replaceChildren(...(l.length?l.map(pcard):[h('div',{class:'empty'},'Kuch nahi mila. Doosra search try karo.')]))};
+v.append(h('div',{class:'sh'},'>> SEARCH PRODUCT'),h('div',{class:'sb'},'🔎',h('input',{placeholder:'Type product or item name to search','aria-label':'Search',value:q,oninput:e=>{q=e.target.value;paint()}})),h('div',{class:'sh'},'>> FILTER DASHBOARD'),h('div',{class:'fd'},h('div',{class:'fl2'},'CATEGORY'),cw,h('div',{class:'fl2 or'},'AVAILABILITY'),aw),h('div',{class:'sh'},'>> STORE PRODUCTS'),grid);paint()}
+function pcard(p){const x=hue(p.name),out=!(p.inStock>0)||cfg.maintenanceMode;
+return h('div',{class:'pc'+(out?' dn':'')},h('div',{class:'pf',style:`background:linear-gradient(135deg,hsl(${x} 80% 40%),hsl(${(x+55)%360} 80% 20%))`},h('div',{class:'tags'},h('span',{class:'tg g'},p.category||'Code'),p.badge?h('span',{class:'tg b'},p.badge):null),out?h('div',{class:'mt'},'⚠ OUT OF STOCK'):h('div',{class:'ini'},p.name.slice(0,2).toUpperCase())),
+h('div',{class:'pn'},'⚡ '+p.name),h('div',{class:'pi'},'⚡ '+(p.description||'Instant digital code')),
+h('div',{class:'pp'},h('b',{},R(p.price)),p.mrp>p.price?h('s',{},R(p.mrp)):null,h('em',{},p.inStock>0?(p.inStock<=5?'Only '+p.inStock+' left':'In stock'):'0 stock')),
+out?h('button',{class:'btn full pu',disabled:true},'⚠ PRODUCT UNAVAILABLE'):h('button',{class:'btn p full pu',onclick:()=>buyModal(p)},'🔑 PURCHASE KEY'))}
 let favs=[];try{favs=JSON.parse(st.get('ks_fav'))||[]}catch(e){}
 let bn=null;async function slider(box){if(!bn){try{bn=await api('GET','/api/banners')}catch(e){bn=[]}}if(!bn.length||!box.isConnected)return;
 box.hidden=false;const tr=h('div',{class:'slides'}),dots=h('div',{class:'dots'});let i=0,t,x0=null;
@@ -337,37 +358,7 @@ addEventListener('offline',()=>{if(!$('.offl'))document.body.append(h('div',{cla
 function account(v){const c=h('input',{type:'password',placeholder:'Current password',autocomplete:'current-password'}),n=h('input',{type:'password',placeholder:'New password',autocomplete:'new-password'}),m=h('div',{class:'err'});
 v.append(h('h2',{style:'margin-top:20px'},me.username),h('div',{class:'panel'},h('div',{class:'row'},h('span',{},'Orders'),h('b',{},me.orderCount||0)),h('div',{class:'row'},h('span',{},'Total spent'),h('b',{},R(me.totalSpent)))),
 h('div',{class:'panel',style:'display:flex;flex-direction:column;gap:10px'},h('h3',{},'Password badlo'),c,n,m,h('button',{class:'btn p',onclick:async()=>{try{const r=await api('POST','/api/me/password',{current:c.value,next:n.value});token=r.token;st.set('ks_token',token);c.value=n.value='';m.textContent='';toast('Password badal gaya')}catch(e){m.textContent=e.message}}},'Update')),
-h('div',{class:'panel stack'},h('button',{class:'btn full',onclick:()=>go('help')},'Support tickets'+(tkUnread?' ('+tkUnread+' naya)':'')),installEv&&h('button',{class:'btn p full',onclick:async()=>{installEv.prompt();await installEv.userChoice;installEv=null;draw()}},'App install karo'),navigator.share&&h('button',{class:'btn full',onclick:()=>navigator.share({title:cfg.siteName,text:'Game keys instant milti hain',url:location.origin}).catch(()=>{})},'Dost ko store share karo')),h('div',{class:'panel'},h('h3',{style:'margin-bottom:10px'},'Theme'),h('div',{class:'quick'},...[['','Auto'],['neon','Neon'],['ocean','Ocean'],['sunset','Sunset'],['emerald','Emerald'],['royal','Royal'],['light','Light']].map(([k,l])=>h('button',{class:'btn'+((st.get('ks_theme')||'')===k?' p':''),onclick:()=>{k?st.set('ks_theme',k):st.del('ks_theme');chrome();draw()}},l)))),cfg.supportLink&&h('a',{class:'btn full',style:'display:flex;align-items:center;justify-content:center;text-decoration:none;margin-bottom:10px',href:cfg.supportLink,target:'_blank',rel:'noopener'},cfg.supportText||'Support'),h('div',{class:'panel stack'},h('h3',{},'More features'),h('div',{class:'quick'},...['extras','bundles','community','loyalty','gifts'].map((x)=>h('button',{class:'btn',onclick:()=>go(x)},({extras:'Gift cards',bundles:'Bundles',community:'Community',loyalty:'Loyalty points',gifts:'My gifts'})[x])))),h('button',{class:'btn full',onclick:logout},'Logout'))}
-async function extrasView(v){
-  v.append(h('div',{class:'hero'},h('h1',{},'More ',h('span',{},'rewards'))));
-  const ps=products||await api('GET','/api/products');
-  const sel=h('select',{},...ps.map(p=>h('option',{value:p.id},p.name+' • '+R(p.price))));
-  const recipient=h('input',{placeholder:'Recipient store username'}),msg=h('textarea',{placeholder:'Gift message (optional)',maxlength:'300'});
-  v.append(h('div',{class:'panel stack'},h('h3',{},'Send a digital gift'),h('p',{class:'mu'},'Gift order wallet se pay hoga; code recipient account ko milega agar recipient registered user hai.'),sel,recipient,msg,h('button',{class:'btn p full',onclick:async()=>{try{await api('POST','/api/gifts/buy',{productId:sel.value,recipient:recipient.value,message:msg.value,idem:crypto.randomUUID()});me=await api('GET','/api/me');toast('Gift order create ho gaya');go('gifts')}catch(e){toast(e.message)}}},'Buy as gift')));
-}
-async function giftsView(v){
-  const [sent,received]=await Promise.all([api('GET','/api/gifts/sent'),api('GET','/api/gifts/received')]);
-  const recv=received.length?received.map(g=>h('div',{class:'panel stack'},h('b',{},g.product),h('span',{class:'mu'},g.message||'A gift for you'),g.code&&h('div',{class:'key',onclick:()=>copy(g.code)},g.code),h('small',{class:'mu'},D(g.createdAt)))):[h('span',{class:'mu'},'No gifts received yet.')];
-  const sentRows=sent.length?sent.map(g=>h('div',{class:'row'},h('b',{},g.product),h('span',{class:'mu'},'To '+g.recipient+' • '+g.status))):[h('span',{class:'mu'},'No gifts sent yet.')];
-  v.append(h('h2',{},'My gifts'),h('div',{class:'panel stack'},h('h3',{},'Received gifts'),...recv),h('div',{class:'panel stack'},h('h3',{},'Sent gifts'),...sentRows));
-}
-async function loyaltyView(v){
-  const r=await api('GET','/api/loyalty/me'),qty=h('input',{type:'number',placeholder:'100, 200, 300…'});
-  const history=r.history.length?r.history.map(x=>h('div',{class:'row'},x.points+' points',h('small',{class:'mu'},x.type+' • '+D(x.createdAt)))):[h('span',{class:'mu'},'No reward activity yet.')];
-  v.append(h('h2',{},'Loyalty rewards'),h('div',{class:'panel stack'},h('span',{class:'mu'},'Your reward balance'),h('b',{class:'big'},String(r.points)+' points'),h('p',{class:'mu'},'100 points = ₹1 wallet credit. Points are tracked separately until redeemed.'),qty,h('button',{class:'btn p full',onclick:async()=>{try{await api('POST','/api/loyalty/redeem',{points:qty.value});toast('Points redeem ho gaye');go('loyalty')}catch(e){toast(e.message)}}},'Redeem points')),h('div',{class:'panel stack'},h('h3',{},'Reward history'),...history));
-}
-async function bundlesView(v){
-  const l=await api('GET','/api/bundles');
-  const cards=l.map(b=>{const items=b.items.map(i=>h('div',{class:'row'},i.product+' × '+i.quantity));const buy=h('button',{class:'btn p full',onclick:async()=>{try{const r=await api('POST','/api/bundles/'+b.id+'/buy',{idem:crypto.randomUUID()});me=await api('GET','/api/me');const done=modal(h('h2',{},'Bundle delivered'),...r.items.map(i=>h('div',{class:'key',onclick:()=>copy(i.key)},i.product+' • '+i.key)),h('button',{class:'btn p full',onclick:()=>{done.close();go('orders')}},'Done'))}catch(e){toast(e.message)}}},'Buy bundle');return h('div',{class:'panel stack'},h('h3',{},b.name),h('p',{class:'mu'},b.description||''),...items,h('b',{class:'big'},R(b.pricePaise/100)),buy)});
-  v.append(h('h2',{},'Value bundles'),...(cards.length?cards:[h('span',{class:'mu'},'Bundles coming soon.')]));
-}
-async function communityView(v){
-  const title=h('input',{placeholder:'Discussion title',maxlength:'100'}),body=h('textarea',{placeholder:'Ask a question or share a tip',maxlength:'1500'});
-  const form=h('div',{class:'panel stack'},h('h3',{},'Start a discussion'),title,body,h('button',{class:'btn p full',onclick:async()=>{try{await api('POST','/api/community',{title:title.value,body:body.value});toast('Post published');go('community')}catch(e){toast(e.message)}}},'Publish'));
-  const l=await api('GET','/api/community');
-  const posts=l.map(p=>{const replies=(p.replies||[]).map(r=>h('div',{class:'panel'},r.username+': '+r.body));const reply=h('input',{placeholder:'Write a reply'});return h('div',{class:'panel stack'},h('div',{class:'row'},h('b',{},p.title),p.verifiedBuyer&&h('span',{class:'tag'},'Verified buyer')),h('p',{},p.body),h('small',{class:'mu'},p.username+' • '+D(p.createdAt)),...replies,h('div',{class:'row'},reply,h('button',{class:'btn',onclick:async()=>{try{await api('POST','/api/community/'+p.id+'/reply',{body:reply.value});go('community')}catch(e){toast(e.message)}}},'Reply'),h('button',{class:'btn',onclick:async()=>{try{await api('POST','/api/community/'+p.id+'/report',{reason:'Please review this post'});toast('Reported')}catch(e){toast(e.message)}}},'Report')))});
-  v.append(h('h2',{},'Gaming community'),form,...(posts.length?posts:[h('span',{class:'mu'},'No discussions yet.')]));
-}
+h('div',{class:'panel stack'},h('button',{class:'btn full',onclick:()=>go('help')},'Support tickets'+(tkUnread?' ('+tkUnread+' naya)':'')),installEv&&h('button',{class:'btn p full',onclick:async()=>{installEv.prompt();await installEv.userChoice;installEv=null;draw()}},'App install karo')),cfg.supportLink&&h('a',{class:'btn full',style:'display:flex;align-items:center;justify-content:center;text-decoration:none;margin-bottom:10px',href:cfg.supportLink,target:'_blank',rel:'noopener'},cfg.supportText||'Support'),h('button',{class:'btn full',onclick:logout},'Logout'))}
 async function payReturn(){const qs=new URLSearchParams(location.search),pid=qs.get('pay')||st.get('ks_pay');if(!pid||!token)return;if(qs.get('pay'))history.replaceState(null,'',location.pathname);
 const box=h('div',{style:'text-align:center'},h('span',{class:'spin'}),h('p',{},'Payment check ho raha hai...')),ov=modal(box);
 for(let i=0;i<8;i++){try{const r=await api('GET','/api/payments/'+encodeURIComponent(pid));if(r.status==='paid'){st.del('ks_pay');me.balance=r.balance;chrome();const ck=h('div',{class:'ck'});ck.innerHTML=CK;setTimeout(confetti,250);box.replaceChildren(ck,h('h2',{class:'pos'},'Payment ho gaya'),h('p',{},R(r.amount)+' wallet mein add ho gaye.'),h('button',{class:'btn p full',onclick:()=>{ov.close();go('shop')}},'Shopping shuru karo'));return}
