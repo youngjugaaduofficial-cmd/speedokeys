@@ -15,6 +15,8 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const TRUST_PROXY = process.env.TRUST_PROXY ? process.env.TRUST_PROXY === '1' : !!process.env.RENDER;
 const ZAP_KEY = process.env.ZAP_KEY || process.env.ZAPUPI_API_KEY || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const GOOGLE_TOKENINFO_URL = process.env.GOOGLE_TOKENINFO_URL || 'https://oauth2.googleapis.com/tokeninfo';
 
 // Durable storage (recommended on free hosting): Upstash Redis over plain HTTPS
 const REMOTE_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
@@ -245,7 +247,7 @@ setInterval(() => {
   for (const [k, v] of limits) if (t - v.since > 3600 * 1000) limits.delete(k);
 }, 600 * 1000).unref();
 
-const publicUser = (u) => ({ id: u.id, username: u.username, balance: rupees(u.balancePaise), createdAt: u.createdAt });
+const publicUser = (u) => ({ id: u.id, username: u.username, email: u.email || '', balance: rupees(u.balancePaise), createdAt: u.createdAt });
 const ratingOf = (pid) => { const r = (db.reviews || []).filter((x) => x.productId === pid); return { avg: r.length ? Math.round((r.reduce((t, x) => t + x.rating, 0) / r.length) * 10) / 10 : 0, count: r.length }; };
 // Duration plans: a product may have plans [{id,label,pricePaise,mrpPaise,active}]. Keys then belong to a plan (key.planId).
 const hasPlans = (p) => !!(p && Array.isArray(p.plans) && p.plans.length);
@@ -369,6 +371,48 @@ const MOCK_MODE = GATEWAY === 'mock';
 const gateway = gateways[GATEWAY];
 
 // Credits the wallet once. Safe to call many times for the same payment.
+// ----- Telegram admin alerts (optional; set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID) -----
+const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TG_CHAT = process.env.TELEGRAM_CHAT_ID || '';
+const TG_LOW_STOCK = Math.max(0, Number(process.env.TELEGRAM_LOW_STOCK === undefined ? 3 : process.env.TELEGRAM_LOW_STOCK) || 0);
+const tgOn = () => !!(TG_TOKEN && TG_CHAT);
+const tgEsc = (s) => String(s === undefined || s === null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+let tgWindowStart = 0, tgWindowCount = 0;
+async function tgSend(html) {
+  if (!tgOn()) return { ok: false, error: 'Telegram is not configured' };
+  try {
+    const res = await fetch('https://api.telegram.org/bot' + TG_TOKEN + '/sendMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: TG_CHAT, text: String(html).slice(0, 3500), parse_mode: 'HTML', disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) {
+      let d = {}; try { d = await res.json(); } catch (_) {}
+      return { ok: false, error: 'Telegram said: ' + (d.description || res.status) };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: 'Could not reach Telegram' }; // never log the URL: it contains the bot token
+  }
+}
+// Fire and forget: a Telegram problem must never break an order or a payment. Never put customer codes in here.
+function notifyAdmin(html) {
+  if (!tgOn()) return;
+  const t = Date.now();
+  if (t - tgWindowStart > 60000) { tgWindowStart = t; tgWindowCount = 0; }
+  if (++tgWindowCount > 20) return; // flood guard: at most 20 alerts a minute
+  tgSend(html).then((r) => { if (!r.ok) console.warn('telegram alert failed:', r.error); });
+}
+function alertStock(product, planId) {
+  if (!tgOn() || !product) return;
+  const left = stockOf(product.id, planId);
+  if (left === 0 || (TG_LOW_STOCK > 0 && left === TG_LOW_STOCK)) {
+    const label = planId && hasPlans(product) ? product.name + ' (' + ((product.plans.find((x) => x.id === planId) || {}).label || 'plan') + ')' : product.name;
+    notifyAdmin((left === 0 ? '🚫 <b>Out of stock</b>\n' : '⚠️ <b>Low stock</b>\n') + tgEsc(label) + ' — ' + left + ' left');
+  }
+}
+
 function settlePayment(pay, note) {
   if (pay.status === 'paid') return pay;
   const user = db.users.find((u) => u.id === pay.userId);
@@ -380,12 +424,29 @@ function settlePayment(pay, note) {
     if (tier && tier.bonusPaise > 0) addTxn(user, 'bonus', tier.bonusPaise, 'Top-up bonus');
   }
   save();
+  notifyAdmin('💰 <b>Wallet top-up</b>\n' + tgEsc(user ? user.username : 'unknown') + ' added ₹' + rupees(pay.amountPaise));
   return pay;
 }
 
 // ======================================================================
 // Mini router
 // ======================================================================
+// Real visitor IP. A client can send any X-Forwarded-For it likes and Render's proxy only appends to it, so that header's first
+// entry must NOT be trusted. Behind a trusted proxy we use the header the CDN sets itself (it overwrites client-supplied copies):
+// CLIENT_IP_HEADER if you set it, else CF-Connecting-IP, else True-Client-IP. Only when none exist do we fall back to the old behaviour.
+const IP_HEADERS = process.env.CLIENT_IP_HEADER ? [process.env.CLIENT_IP_HEADER.toLowerCase()] : ['cf-connecting-ip', 'true-client-ip'];
+let ipFallbackWarned = false;
+function clientIpInfo(req) {
+  if (!TRUST_PROXY) return { ip: req.socket.remoteAddress, source: 'socket' };
+  for (const name of IP_HEADERS) {
+    const v = String(req.headers[name] || '').split(',')[0].trim();
+    if (v && v.length <= 64) return { ip: v, source: name };
+  }
+  if (!ipFallbackWarned) { ipFallbackWarned = true; console.warn('No CF-Connecting-IP / True-Client-IP header seen; falling back to X-Forwarded-For (spoofable). Set CLIENT_IP_HEADER if your host uses another header.'); }
+  return { ip: String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress, source: 'x-forwarded-for (spoofable)' };
+}
+const clientIp = (req) => clientIpInfo(req).ip;
+
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -477,7 +538,7 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   if (req.socket.encrypted || (TRUST_PROXY && req.headers['x-forwarded-proto'] === 'https')) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   try {
     const url = new URL(req.url, 'http://localhost');
@@ -537,9 +598,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (!matched) return sendJson(res, otherMethod ? 405 : 404, { error: 'Not found' });
 
-    const ip = TRUST_PROXY
-      ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress
-      : req.socket.remoteAddress;
+    const ip = clientIp(req);
 
     let user = null;
     if (matched.opts.auth === 'user') user = authUser(req);
@@ -581,6 +640,7 @@ route('GET', '/api/config', () => ({
   minTopup: rupees(db.settings.minTopupPaise),
   maxTopup: rupees(db.settings.maxTopupPaise),
   testMode: MOCK_MODE,
+  googleClientId: GOOGLE_CLIENT_ID,
   maintenanceMode: !!db.settings.maintenanceMode,
   maintenanceMessage: db.settings.maintenanceMessage || 'We are under maintenance. Please check back soon.',
   theme: db.settings.theme || 'electric',
@@ -623,27 +683,40 @@ route('GET', '/api/products', () =>
 );
 
 // ----- accounts -----
-const USERNAME_RX = /^[A-Za-z0-9_]{3,20}$/;
+const EMAIL_RX = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+const normEmail = (v) => String(v || '').trim().toLowerCase();
+const newReferralCode = () => 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase();
 
-route('POST', '/api/signup', async ({ body, ip }) => {
-  limit('signup:' + ip, 8, 3600 * 1000);
-  const username = String(body.username || '').trim();
-  const password = String(body.password || '');
-  if (!USERNAME_RX.test(username)) fail(400, 'Username must be 3 to 20 letters, numbers or _');
-  if (password.length < 10 || password.length > 100) fail(400, 'Password must be at least 10 characters');
-  if (db.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) fail(409, 'That username is taken');
-  const rawCode = String(body.referralCode || '').trim().toUpperCase();
+// Public display name is derived from the email name part (e.g. rahul.k@gmail.com -> rahulk).
+function makeUsername(email) {
+  let base = email.split('@')[0].replace(/[^A-Za-z0-9_]/g, '').slice(0, 14);
+  if (base.length < 3) base = ('user' + base).slice(0, 14);
+  let name = base;
+  while (db.users.some((u) => u.username.toLowerCase() === name.toLowerCase())) name = base + crypto.randomInt(100, 9999);
+  return name;
+}
+
+function requireConsent(body) {
+  if (body.ageConfirmed !== true) fail(400, 'You must confirm that you are 18 or older');
+  if (body.termsAccepted !== true) fail(400, 'You must accept the Terms & Conditions');
+}
+
+async function createAccount({ email, password, googleSub, emailVerified, referralCode, ip }) {
+  const rawCode = String(referralCode || '').trim().toUpperCase();
   let referrer = null;
   if (rawCode) {
     referrer = db.users.find((u) => u.referralCode && u.referralCode.toUpperCase() === rawCode);
     if (!referrer) fail(400, 'Referral code is invalid');
   }
+  // Google accounts get a random unusable password; they sign in with Google.
+  const passHash = await hashPassword(password || crypto.randomBytes(32).toString('hex'));
+  if (db.users.some((u) => u.email === email)) fail(409, 'An account with this email already exists');
   const user = {
-    id: uid(), username, passHash: await hashPassword(password), balancePaise: 0,
-    banned: false, tv: 1, createdAt: now(), lastLogin: now(), signupIp: ip || '',
-    referralCode: 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase(),
+    id: uid(), username: makeUsername(email), email, emailVerified: !!emailVerified, googleSub: googleSub || null,
+    passHash, balancePaise: 0, banned: false, tv: 1, createdAt: now(), lastLogin: now(), signupIp: ip || '',
+    ageConfirmedAt: now(), termsAcceptedAt: now(), referralCode: newReferralCode(),
   };
-  while (db.users.some((u) => u.referralCode === user.referralCode)) user.referralCode = 'SPD' + crypto.randomBytes(4).toString('hex').toUpperCase();
+  while (db.users.some((u) => u.referralCode === user.referralCode)) user.referralCode = newReferralCode();
   db.users.push(user);
   if (db.settings.welcomeBonusPaise > 0 && !(ip && db.users.some((x) => x !== user && x.signupIp === ip && x.welcomeGiven))) {
     addTxn(user, 'bonus', db.settings.welcomeBonusPaise, 'Welcome bonus');
@@ -651,20 +724,74 @@ route('POST', '/api/signup', async ({ body, ip }) => {
   }
   if (referrer && referrer.id !== user.id) db.referrals.push({ id: uid(), referrerId: referrer.id, referredUserId: user.id, code: rawCode, status: 'pending', rewardPaise: Number.isSafeInteger(db.settings.referralRewardPaise) ? db.settings.referralRewardPaise : 1000, createdAt: now(), rewardedAt: null });
   save();
-  return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) };
+  return user;
+}
+
+const sessionFor = (user) => ({ token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) });
+
+route('POST', '/api/signup', async ({ body, ip }) => {
+  const email = normEmail(body.email);
+  const password = String(body.password || '');
+  if (!EMAIL_RX.test(email) || email.length > 254) fail(400, 'Enter a valid email address');
+  if (password.length < 10 || password.length > 100) fail(400, 'Password must be at least 10 characters');
+  if (password !== String(body.confirmPassword || '')) fail(400, 'Passwords do not match');
+  requireConsent(body);
+  limit('signup:' + ip, 8, 3600 * 1000); // counts only well-formed attempts, so typos do not lock people out
+  const user = await createAccount({ email, password, emailVerified: false, referralCode: body.referralCode, ip });
+  return sessionFor(user);
+});
+
+// Sign in with Google: verifies the Google ID token (audience must be our client id).
+async function verifyGoogleCredential(credential) {
+  if (!GOOGLE_CLIENT_ID) fail(503, 'Google sign-in is not set up on this store');
+  if (typeof credential !== 'string' || credential.length < 20 || credential.length > 4096) fail(400, 'Invalid Google token');
+  let info = null;
+  try {
+    const r = await fetch(GOOGLE_TOKENINFO_URL + '?id_token=' + encodeURIComponent(credential), { signal: AbortSignal.timeout(8000) });
+    if (r.ok) info = await r.json();
+  } catch (e) { info = null; }
+  if (!info) fail(401, 'Google sign-in failed. Please try again');
+  const issOk = info.iss === 'accounts.google.com' || info.iss === 'https://accounts.google.com';
+  const verified = info.email_verified === true || info.email_verified === 'true';
+  const email = normEmail(info.email);
+  if (info.aud !== GOOGLE_CLIENT_ID || !issOk || !(Number(info.exp) * 1000 > now()) || !verified || !info.sub || !EMAIL_RX.test(email)) fail(401, 'Google sign-in failed. Please try again');
+  return { sub: String(info.sub), email };
+}
+
+route('POST', '/api/auth/google', async ({ body, ip }) => {
+  limit('google:' + ip, 20, 15 * 60 * 1000);
+  const g = await verifyGoogleCredential(body.credential);
+  let user = db.users.find((u) => u.googleSub === g.sub) || db.users.find((u) => u.email === g.email);
+  if (user) {
+    if (user.banned) fail(403, 'This account has been blocked');
+    if (!user.googleSub) user.googleSub = g.sub;
+    if (!user.emailVerified) {
+      // The email was typed at password sign-up and never verified; Google has now proven ownership,
+      // so the old password is retired and sessions made with it are revoked.
+      user.emailVerified = true;
+      user.passHash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+      user.tv += 1;
+    }
+    user.lastLogin = now();
+    save();
+    return sessionFor(user);
+  }
+  if (body.ageConfirmed !== true || body.termsAccepted !== true) fail(400, 'CONSENT_REQUIRED');
+  user = await createAccount({ email: g.email, googleSub: g.sub, emailVerified: true, referralCode: body.referralCode, ip });
+  return sessionFor(user);
 });
 
 route('POST', '/api/login', async ({ body, ip }) => {
-  const username = String(body.username || '').trim();
+  const ident = String(body.email || body.username || '').trim().toLowerCase();
   limit('login:' + ip, 30, 15 * 60 * 1000);
-  limit('loginu:' + username.toLowerCase(), 10, 15 * 60 * 1000);
-  const user = db.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+  limit('loginu:' + ident, 10, 15 * 60 * 1000);
+  const user = ident ? db.users.find((u) => u.username.toLowerCase() === ident || (u.email && u.email === ident)) : null;
   const ok = user ? await checkPassword(String(body.password || ''), user.passHash) : false;
-  if (!user || !ok) fail(401, 'Wrong username or password');
+  if (!user || !ok) fail(401, 'Wrong email or password');
   if (user.banned) fail(403, 'This account has been blocked');
   user.lastLogin = now();
   save();
-  return { token: signToken({ role: 'user', uid: user.id, tv: user.tv }, 30 * 86400), user: publicUser(user) };
+  return sessionFor(user);
 });
 
 route('GET', '/api/me', { auth: 'user' }, ({ user }) => {
@@ -780,6 +907,8 @@ route('POST', '/api/buy', { auth: 'user' }, ({ user, body, req }) => {
   const result = { orderId: order.id, product: unit.name, key: key.value, paid: rupees(price), balance: rupees(user.balancePaise) };
   storeIdempotent('buy:' + user.id, idem, body, result);
   save();
+  notifyAdmin('🛒 <b>New order</b>\n' + tgEsc(user.username) + ' bought ' + tgEsc(unit.name) + ' — ₹' + rupees(price));
+  alertStock(product, unit.planId);
   return result;
 });
 
@@ -899,6 +1028,7 @@ route('POST', '/api/zapupi/webhook/:secret', { raw: true }, ({ params, raw, ip }
     const paidPaise = data.pay_amount === undefined ? amountPaise : Math.round(Number(data.pay_amount) * 100);
     if (!Number.isFinite(amountPaise) || !Number.isFinite(paidPaise) || amountPaise !== pay.amountPaise || paidPaise < pay.amountPaise) {
       console.error('zapupi webhook: AMOUNT MISMATCH, not credited', pay.id, 'expected', pay.amountPaise, 'got', amountPaise, paidPaise);
+      notifyAdmin('⚠️ <b>Payment amount mismatch</b>\nNot credited. Please check Payments in admin. Expected ₹' + rupees(pay.amountPaise));
       return { ok: true }; // admin can review and approve manually
     }
     if (data.txn_id) pay.txnId = String(data.txn_id);
@@ -1174,12 +1304,13 @@ route('DELETE', '/api/admin/keys/:id', A, ({ params }) => {
 route('GET', '/api/admin/users', A, ({ query }) => {
   const q = (query.get('q') || '').toLowerCase();
   return db.users
-    .filter((u) => !q || u.username.toLowerCase().includes(q))
+    .filter((u) => !q || u.username.toLowerCase().includes(q) || (u.email || '').includes(q))
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 300)
     .map((u) => ({
       id: u.id,
       username: u.username,
+      email: u.email || '',
       balance: rupees(u.balancePaise),
       banned: u.banned,
       createdAt: u.createdAt,
@@ -1194,6 +1325,7 @@ route('GET', '/api/admin/users/:id', A, ({ params }) => {
   return {
     id: u.id,
     username: u.username,
+    email: u.email || '',
     balance: rupees(u.balancePaise),
     banned: u.banned,
     createdAt: u.createdAt,
@@ -1540,6 +1672,7 @@ route('POST', '/api/tickets', { auth: 'user' }, ({ user, body }) => {
   const t = { id: uid(), userId: user.id, username: user.username, orderId: linked ? linked.id : null, orderName: linked ? linked.productName : '', subject, status: 'open', messages: [{ from: 'user', text: message, at: now() }], createdAt: now(), updatedAt: now(), unreadAdmin: true, unreadUser: false };
   db.tickets.push(t);
   save();
+  notifyAdmin('🎫 <b>New support ticket</b>\n' + tgEsc(user.username) + ': ' + tgEsc(subject));
   return reply(201, ticketOut(t));
 });
 route('POST', '/api/tickets/:id/reply', { auth: 'user' }, ({ user, params, body }) => {
@@ -1603,13 +1736,37 @@ route('GET', '/api/admin/search', A, ({ query }) => {
   const q = String(query.get('q') || '').trim().toLowerCase();
   if (q.length < 2) return { users: [], orders: [], products: [], tickets: [] };
   return {
-    users: db.users.filter((u) => u.username.toLowerCase().includes(q)).slice(0, 5).map((u) => ({ id: u.id, username: u.username, balance: rupees(u.balancePaise), banned: !!u.banned })),
+    users: db.users.filter((u) => u.username.toLowerCase().includes(q) || (u.email || '').includes(q)).slice(0, 5).map((u) => ({ id: u.id, username: u.username, balance: rupees(u.balancePaise), banned: !!u.banned })),
     orders: db.orders.filter((o) => (o.productName + ' ' + o.username + ' ' + o.id).toLowerCase().includes(q)).slice(-5).reverse().map((o) => ({ id: o.id, product: o.productName, username: o.username, paid: rupees(o.pricePaise) })),
     products: db.products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 5).map((p) => ({ id: p.id, name: p.name, price: rupees(p.pricePaise) })),
     tickets: db.tickets.filter((t) => t.subject.toLowerCase().includes(q)).slice(0, 5).map((t) => ({ id: t.id, subject: t.subject, username: t.username, status: t.status })),
   };
 });
-route('GET', '/api/admin/system', A, () => ({
+// ----- wishlist (saved products) -----
+const wishIds = (user) => (user.wishlist || []).filter((id) => db.products.some((p) => p.id === id && p.active));
+route('GET', '/api/wishlist', { auth: 'user' }, ({ user }) => ({ ids: wishIds(user) }));
+route('POST', '/api/wishlist/:id', { auth: 'user' }, ({ user, params, body }) => {
+  limit('wl:' + user.id, 60, 60 * 1000);
+  const product = db.products.find((p) => p.id === params.id && p.active);
+  const list = (user.wishlist || []).filter((id) => id !== params.id);
+  if (body.on !== false) {
+    if (!product) fail(404, 'Product not found');
+    if (list.length >= 100) fail(400, 'Saved list is full (100 max)');
+    list.push(params.id);
+  }
+  user.wishlist = list;
+  save();
+  return { ids: wishIds(user) };
+});
+
+route('POST', '/api/admin/telegram/test', A, async () => {
+  if (!tgOn()) fail(400, 'Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the server first');
+  const r = await tgSend('✅ <b>' + tgEsc(db.settings.siteName || 'Key Store') + '</b>\nTelegram alerts are working.');
+  if (!r.ok) fail(502, r.error);
+  return { ok: true };
+});
+
+route('GET', '/api/admin/system', A, ({ req }) => ({
   storage: REMOTE_URL ? 'Upstash Redis' : 'Local file',
   durable: !!REMOTE_URL,
   encrypted: !!DB_ENC_KEY,
@@ -1618,6 +1775,8 @@ route('GET', '/api/admin/system', A, () => ({
   limitBytes: REMOTE_URL ? 1000000 : null,
   saveFailed,
   gateway: GATEWAY,
+  telegram: tgOn(),
+  yourIp: clientIpInfo(req),
   paymentVerify: GATEWAY === 'mock' ? 'test mode' : process.env.ZAP_STATUS_URL ? 'webhook + status API' : 'secured webhook only',
   uptimeMin: Math.round(process.uptime() / 60),
   node: process.version,
@@ -1726,6 +1885,9 @@ route('POST', '/api/checkout', { auth: 'user' }, ({ user, body, req }) => {
   const result = { groupId, items, paid: rupees(total), balance: rupees(user.balancePaise) };
   storeIdempotent('checkout:' + user.id, idem, body, result);
   save();
+  notifyAdmin('🛒 <b>New order</b>\n' + tgEsc(user.username) + ' bought ' + units.length + ' item(s): ' + tgEsc([...new Set(units.map((u) => u.unit.name))].slice(0, 5).join(', ')) + ' — ₹' + rupees(total));
+  const alerted = new Set();
+  for (const u of units) { const k = u.p.id + ':' + (u.unit.planId || ''); if (!alerted.has(k)) { alerted.add(k); alertStock(u.p, u.unit.planId); } }
   return result;
 });
 
@@ -1866,7 +2028,7 @@ route('GET','/api/bundles',()=>db.bundles.filter(b=>b.active).map(b=>({...b,item
 route('GET','/api/admin/bundles',A,()=>db.bundles);
 route('POST','/api/admin/bundles',A,({body})=>{const name=cleanText(body.name,3,80,'Bundle name');if(!Array.isArray(body.items)||body.items.length<2||body.items.length>8)fail(400,'Bundle needs 2 to 8 products');const items=body.items.map(i=>({productId:String(i.productId),quantity:Math.max(1,Math.min(5,Math.floor(Number(i.quantity)||1)))}));if(items.some(i=>!db.products.some(p=>p.id===i.productId&&p.active)))fail(400,'Invalid bundle product');if(items.some(i=>hasPlans(db.products.find(p=>p.id===i.productId))))fail(400,'Products with duration plans cannot be used in bundles yet');const price=Number(body.price);if(!Number.isFinite(price)||price<=0)fail(400,'Invalid bundle price');const b={id:uid(),name,description:moduleText(body.description,300),items,pricePaise:Math.round(price*100),active:true,createdAt:now()};db.bundles.push(b);save();return reply(201,b);});
 route('PUT','/api/admin/bundles/:id',A,({params,body})=>{const b=db.bundles.find(x=>x.id===params.id);if(!b)fail(404,'Bundle not found');if(body.active!==undefined)b.active=!!body.active;if(body.price!==undefined){const n=Number(body.price);if(!Number.isFinite(n)||n<=0)fail(400,'Invalid price');b.pricePaise=Math.round(n*100);}save();return b;});
-route('POST','/api/bundles/:id/buy',{auth:'user'},({params,user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.orders.find(o=>o.userId===user.id&&o.bundleId===params.id&&o.idem===idem);if(prior){const group=db.orders.filter(o=>o.groupId===prior.groupId);return {groupId:prior.groupId,items:group.map(o=>({orderId:o.id,product:o.productName,key:(db.keys.find(k=>k.id===o.keyId)||{}).value})),paid:rupees(group.reduce((n,o)=>n+o.pricePaise,0)),balance:rupees(user.balancePaise),replayed:true};}}const b=db.bundles.find(x=>x.id===params.id&&x.active);if(!b)fail(404,'Bundle not found');const units=[];for(const i of b.items){const p=db.products.find(x=>x.id===i.productId&&x.active);if(!p)fail(409,'Bundle product unavailable');const keys=db.keys.filter(k=>k.productId===p.id&&k.status==='available'&&!k.planId);if(hasPlans(p)||keys.length<i.quantity)fail(409,'Bundle is out of stock');for(let n=0;n<i.quantity;n++)units.push({p,key:keys[n]});}if(user.balancePaise<b.pricePaise)fail(402,'Not enough wallet balance');user.balancePaise-=b.pricePaise;const groupId=uid(),items=[],baseShare=Math.floor(b.pricePaise/units.length),remainder=b.pricePaise-baseShare*units.length;for(let index=0;index<units.length;index++){const u=units[index];u.key.status='sold';u.key.orderId=uid();u.key.soldAt=now();const o={id:u.key.orderId,groupId,userId:user.id,username:user.username,productId:u.p.id,productName:u.p.name,pricePaise:baseShare+(index<remainder?1:0),costPaise:u.key.unitCostPaise!==undefined?u.key.unitCostPaise:(u.p.costPaise||0),keyId:u.key.id,status:'completed',createdAt:now(),bundleId:b.id,idem:idem||null};db.orders.push(o);items.push({orderId:o.id,product:u.p.name,key:u.key.value});}addTxn(user,'purchase',-b.pricePaise,'Bundle: '+b.name);save();return {groupId,items,paid:rupees(b.pricePaise),balance:rupees(user.balancePaise)};});
+route('POST','/api/bundles/:id/buy',{auth:'user'},({params,user,body})=>{const idem=moduleText(body.idem,64);if(idem){const prior=db.orders.find(o=>o.userId===user.id&&o.bundleId===params.id&&o.idem===idem);if(prior){const group=db.orders.filter(o=>o.groupId===prior.groupId);return {groupId:prior.groupId,items:group.map(o=>({orderId:o.id,product:o.productName,key:(db.keys.find(k=>k.id===o.keyId)||{}).value})),paid:rupees(group.reduce((n,o)=>n+o.pricePaise,0)),balance:rupees(user.balancePaise),replayed:true};}}const b=db.bundles.find(x=>x.id===params.id&&x.active);if(!b)fail(404,'Bundle not found');const units=[];for(const i of b.items){const p=db.products.find(x=>x.id===i.productId&&x.active);if(!p)fail(409,'Bundle product unavailable');const keys=db.keys.filter(k=>k.productId===p.id&&k.status==='available'&&!k.planId);if(hasPlans(p)||keys.length<i.quantity)fail(409,'Bundle is out of stock');for(let n=0;n<i.quantity;n++)units.push({p,key:keys[n]});}if(user.balancePaise<b.pricePaise)fail(402,'Not enough wallet balance');user.balancePaise-=b.pricePaise;const groupId=uid(),items=[],baseShare=Math.floor(b.pricePaise/units.length),remainder=b.pricePaise-baseShare*units.length;for(let index=0;index<units.length;index++){const u=units[index];u.key.status='sold';u.key.orderId=uid();u.key.soldAt=now();const o={id:u.key.orderId,groupId,userId:user.id,username:user.username,productId:u.p.id,productName:u.p.name,pricePaise:baseShare+(index<remainder?1:0),costPaise:u.key.unitCostPaise!==undefined?u.key.unitCostPaise:(u.p.costPaise||0),keyId:u.key.id,status:'completed',createdAt:now(),bundleId:b.id,idem:idem||null};db.orders.push(o);items.push({orderId:o.id,product:u.p.name,key:u.key.value});}addTxn(user,'purchase',-b.pricePaise,'Bundle: '+b.name);save();notifyAdmin('🎁 <b>Bundle sold</b>\n'+tgEsc(user.username)+' bought '+tgEsc(b.name)+' — ₹'+rupees(b.pricePaise));for(const u of units)alertStock(u.p);return {groupId,items,paid:rupees(b.pricePaise),balance:rupees(user.balancePaise)};});
 
 // Community: moderated text-only posts, replies, reporting and verified buyer marker.
 route('GET','/api/community',()=>db.communityPosts.filter(p=>p.status==='published').slice(-100).reverse().map(p=>({...p,replies:(p.replies||[]).slice(-20)})));

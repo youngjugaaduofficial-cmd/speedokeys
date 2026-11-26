@@ -19,9 +19,21 @@ Free tiers have quotas and cold starts. This is suitable for a low-traffic test/
    - `UPSTASH_REDIS_REST_TOKEN` — the Upstash REST token.
    - `PUBLIC_URL` — your deployed HTTPS URL, without a trailing slash.
    - `GATEWAY` — leave unset or use `mock` only for testing. Mock payment is not real money.
+   - Optional: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_LOW_STOCK`, `CLIENT_IP_HEADER`, `ONESIGNAL_APP_ID`, `ONESIGNAL_REST_API_KEY`. The full list with examples is in `ENV_VARIABLES.md`.
 5. Deploy. Open `/api/health` and `/admin.html`. Log in with the `ADMIN_PASSWORD` you configured.
 6. In Admin → Security & system, verify persistent storage and encryption. Download a backup before adding real inventory.
 7. Configure a real payment gateway only after obtaining provider credentials and webhook settings. For the current ZapUPI integration, configure `GATEWAY=zapupi`, `ZAPUPI_API_KEY` (or `ZAP_KEY`), `ZAP_WEBHOOK_SECRET` (32+ random characters), `ZAP_WEBHOOK_IPS` (exact provider source IPs, comma-separated), and the provider's required callback/status settings. The app refuses to start in ZapUPI mode without the IP allowlist. Provider signature verification is not yet implemented; confirm ZapUPI's official signing specification and add/verify it before enabling live auto-credit. Test successful, failed, duplicate and amount-mismatch callbacks before selling anything.
+
+## Telegram alerts (optional)
+Get a message on your phone for new orders, wallet top-ups, support tickets, low/out-of-stock and payment amount mismatches.
+1. In Telegram, open **@BotFather**, send `/newbot`, and copy the bot token.
+2. Send any message to your new bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy the `chat.id` number.
+3. In Render → Environment add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Optional: `TELEGRAM_LOW_STOCK` (default 3; set 0 to only alert on out-of-stock).
+4. Redeploy, then open Admin → Security & system → **Send test message**.
+Alerts never include customer codes. If Telegram is down, orders and payments still work. At most 20 alerts are sent per minute.
+
+## Keep the free server awake
+Render free services sleep after about 15 minutes without traffic, which can make a payment webhook fail. Add a free UptimeRobot monitor that opens `https://YOUR-APP.onrender.com/api/health` every 5 minutes.
 
 ## Before real sales
 - Add only genuine, legally sourced gift-card codes and verify their country/region restrictions.

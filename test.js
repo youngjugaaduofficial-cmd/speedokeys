@@ -9,9 +9,23 @@ const path = require('node:path');
 const port = 18000 + Math.floor(Math.random() * 20000);
 const dataFile = path.join(os.tmpdir(), `keystore-test-${process.pid}.json`);
 const base = `http://127.0.0.1:${port}`;
+const GOOGLE_ID = 'test-client-id.apps.googleusercontent.com';
+const stubPort = port + 1;
+const googleTokens = {
+  'good-token-for-gtest-0001': { iss: 'https://accounts.google.com', aud: GOOGLE_ID, exp: String(Math.floor(Date.now() / 1000) + 3600), email: 'GTest@gmail.com', email_verified: 'true', sub: 'g-sub-1' },
+  'wrong-audience-token-0001': { iss: 'https://accounts.google.com', aud: 'someone-else', exp: String(Math.floor(Date.now() / 1000) + 3600), email: 'evil@gmail.com', email_verified: 'true', sub: 'g-sub-2' },
+  'unverified-email-token-001': { iss: 'https://accounts.google.com', aud: GOOGLE_ID, exp: String(Math.floor(Date.now() / 1000) + 3600), email: 'unv@gmail.com', email_verified: 'false', sub: 'g-sub-3' },
+  'claim-existing-account-001': { iss: 'https://accounts.google.com', aud: GOOGLE_ID, exp: String(Math.floor(Date.now() / 1000) + 3600), email: 'claimme@example.test', email_verified: 'true', sub: 'g-sub-4' },
+};
+const googleStub = require('node:http').createServer((req, res) => {
+  const t = new URL(req.url, 'http://x').searchParams.get('id_token');
+  const info = googleTokens[t];
+  res.writeHead(info ? 200 : 400, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(info || { error: 'invalid_token' }));
+}).listen(stubPort, '127.0.0.1');
 const child = spawn(process.execPath, ['server.js'], {
   cwd: __dirname,
-  env: { ...process.env, PORT: String(port), DATA_FILE: dataFile, ADMIN_PASSWORD: 'test-admin-password', JWT_SECRET: 'test-secret-that-is-long-enough-for-tests', GATEWAY: 'mock', UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '' },
+  env: { ...process.env, PORT: String(port), DATA_FILE: dataFile, ADMIN_PASSWORD: 'test-admin-password', JWT_SECRET: 'test-secret-that-is-long-enough-for-tests', GATEWAY: 'mock', GOOGLE_CLIENT_ID: GOOGLE_ID, GOOGLE_TOKENINFO_URL: `http://127.0.0.1:${stubPort}/tokeninfo`, UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let logs = '';
@@ -46,12 +60,41 @@ async function run() {
   assert.equal(healthResponse.headers.get('x-frame-options'), 'DENY');
   assert.equal((await healthResponse.json()).ok, true);
   const sw = await fetch(base + '/sw.js');
-  assert.match(await sw.text(), /keystore-shell-v3/);
+  assert.match(await sw.text(), /keystore-shell-v5/);
   assert.equal(sw.headers.get('service-worker-allowed'), '/');
   const admin = (await request('POST', '/api/admin/login', { password: 'test-admin-password' })).token;
-  await assert.rejects(() => request('POST', '/api/signup', { username: 'Weak_Pass', password: 'short1' }), /400/);
-  const a = await request('POST', '/api/signup', { username: 'Tester_One', password: 'pass1234567' });
-  const b = await request('POST', '/api/signup', { username: 'Tester_Two', password: 'pass1234567', referralCode: (await request('GET', '/api/me', undefined, a.token)).referralCode });
+  const consent = { ageConfirmed: true, termsAccepted: true };
+  const pw = 'pass1234567';
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'weak@example.test', password: 'short1', confirmPassword: 'short1', ...consent }), /400/);
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'not-an-email', password: pw, confirmPassword: pw, ...consent }), /valid email/);
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'mismatch@example.test', password: pw, confirmPassword: pw + 'x', ...consent }), /do not match/);
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'minor@example.test', password: pw, confirmPassword: pw, termsAccepted: true }), /18 or older/);
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'noterms@example.test', password: pw, confirmPassword: pw, ageConfirmed: true }), /Terms/);
+  const a = await request('POST', '/api/signup', { email: 'Tester_One@example.test', password: pw, confirmPassword: pw, ...consent });
+  assert.equal(a.user.email, 'tester_one@example.test');
+  assert.equal(a.user.username, 'tester_one');
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'TESTER_ONE@example.test', password: pw, confirmPassword: pw, ...consent }), /409/);
+  const loginByEmail = await request('POST', '/api/login', { email: 'tester_one@example.test', password: pw });
+  assert.equal(loginByEmail.user.id, a.user.id);
+  const loginByName = await request('POST', '/api/login', { username: 'Tester_One', password: pw });
+  assert.equal(loginByName.user.id, a.user.id);
+  const b = await request('POST', '/api/signup', { email: 'Tester_Two@example.test', password: pw, confirmPassword: pw, ...consent, referralCode: (await request('GET', '/api/me', undefined, a.token)).referralCode });
+  // Sign in with Google
+  assert.equal((await request('GET', '/api/config')).googleClientId, GOOGLE_ID);
+  await assert.rejects(() => request('POST', '/api/auth/google', { credential: 'good-token-for-gtest-0001' }), /CONSENT_REQUIRED/);
+  await assert.rejects(() => request('POST', '/api/auth/google', { credential: 'wrong-audience-token-0001', ...consent }), /401/);
+  await assert.rejects(() => request('POST', '/api/auth/google', { credential: 'unverified-email-token-001', ...consent }), /401/);
+  await assert.rejects(() => request('POST', '/api/auth/google', { credential: 'totally-unknown-token-0001', ...consent }), /401/);
+  const g1 = await request('POST', '/api/auth/google', { credential: 'good-token-for-gtest-0001', ...consent });
+  assert.equal(g1.user.email, 'gtest@gmail.com');
+  const g2 = await request('POST', '/api/auth/google', { credential: 'good-token-for-gtest-0001' });
+  assert.equal(g2.user.id, g1.user.id);
+  // Google claims an unverified password sign-up for the same email: old password stops working
+  const claimed = await request('POST', '/api/signup', { email: 'claimme@example.test', password: pw, confirmPassword: pw, ...consent });
+  const g3 = await request('POST', '/api/auth/google', { credential: 'claim-existing-account-001' });
+  assert.equal(g3.user.id, claimed.user.id);
+  await assert.rejects(() => request('POST', '/api/login', { email: 'claimme@example.test', password: pw }), /401/);
+  await assert.rejects(() => request('GET', '/api/me', undefined, claimed.token), /401/);
   const category = await request('POST', '/api/admin/categories', { name: 'Android' }, admin);
   const product = await request('POST', '/api/admin/products', { name: 'Test Key', category: 'Android', description: '1 hour', websiteUrl: 'https://example.com', price: 1 }, admin);
   await request('POST', `/api/admin/products/${product.id}/keys`, { keys: ['KEY-TEST-123'] }, admin);
@@ -155,12 +198,21 @@ async function run() {
   assert.equal((await request('GET', '/api/products'))[0].inStock, 0);
   const buyRes = await fetch(base + '/api/buy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${a.token}` }, body: JSON.stringify({ productId: product.id }) });
   assert.equal(buyRes.status, 503);
+  // wishlist + Telegram (not configured in tests)
+  assert.deepEqual((await request('GET', '/api/wishlist', undefined, a.token)).ids, []);
+  assert.deepEqual((await request('POST', '/api/wishlist/' + product.id, { on: true }, a.token)).ids, [product.id]);
+  assert.deepEqual((await request('POST', '/api/wishlist/' + product.id, { on: true }, a.token)).ids, [product.id]);
+  await assert.rejects(() => request('POST', '/api/wishlist/not-a-product', { on: true }, a.token), /404/);
+  assert.deepEqual((await request('POST', '/api/wishlist/' + product.id, { on: false }, a.token)).ids, []);
+  await assert.rejects(() => request('GET', '/api/wishlist'), /401/);
+  assert.equal((await request('GET', '/api/admin/system', undefined, admin)).telegram, false);
+  await assert.rejects(() => request('POST', '/api/admin/telegram/test', {}, admin), /400/);
   await request('POST', '/api/admin/logout-all', {}, admin);
   const revoked = await fetch(base + '/api/admin/stats', { headers: { Authorization: `Bearer ${admin}` } });
   assert.equal(revoked.status, 401);
-  console.log('PASS: core store + operations, supplier batches, affiliates, SEO, gifts, loyalty, bundles, advanced analytics, community, maintenance mode.');
+  console.log('PASS: core store + operations, supplier batches, affiliates, SEO, gifts, loyalty, bundles, advanced analytics, community, maintenance mode, wishlist, Telegram setup check.');
 }
 run().catch((e) => { console.error('FAIL:', e.stack || e); process.exitCode = 1; }).finally(() => {
-  child.kill('SIGTERM');
+  child.kill('SIGTERM'); googleStub.close();
   setTimeout(() => { try { fs.unlinkSync(dataFile); } catch {} }, 300);
 });

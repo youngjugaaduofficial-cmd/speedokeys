@@ -1,4 +1,4 @@
-# Speedo Keys / Key Store — v2.4.0
+# Speedo Keys / Key Store — v2.6.0
 
 A zero-dependency Node.js gift-card and digital-key reseller storefront with customer accounts, wallet, stock-backed automatic code delivery, admin management and nine additional hybrid modules.
 
@@ -10,6 +10,13 @@ ADMIN_PASSWORD='use-a-unique-password-of-12-chars-minimum' JWT_SECRET='use-a-ran
 ```
 
 Open `http://localhost:3000` for the store and `http://localhost:3000/admin.html` for the admin panel. The mock payment flow is for local testing only and does not collect real money.
+
+## v2.6.0 additions
+- Telegram admin alerts: new orders, wallet top-ups, support tickets, low/out-of-stock and payment amount mismatches.
+- Wishlist (saved products with a ♥ Saved filter) and product sorting.
+- "My codes": search, Copy all, CSV export.
+- Safer client-IP detection behind Render/Cloudflare (a spoofed `X-Forwarded-For` no longer bypasses the webhook IP allowlist or the login rate limits). Admin → Security & system shows how your IP is detected.
+- See `ENV_VARIABLES.md` for every environment variable, and `.env.example` for a ready template.
 
 ## v2.4.0 security and reliability repairs
 - Stronger environment-secret requirements and 10-character minimum for new/change passwords.
