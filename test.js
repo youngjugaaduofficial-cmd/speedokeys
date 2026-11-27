@@ -60,7 +60,7 @@ async function run() {
   assert.equal(healthResponse.headers.get('x-frame-options'), 'DENY');
   assert.equal((await healthResponse.json()).ok, true);
   const sw = await fetch(base + '/sw.js');
-  assert.match(await sw.text(), /keystore-shell-v5/);
+  assert.match(await sw.text(), /keystore-shell-v6/);
   assert.equal(sw.headers.get('service-worker-allowed'), '/');
   const admin = (await request('POST', '/api/admin/login', { password: 'test-admin-password' })).token;
   const consent = { ageConfirmed: true, termsAccepted: true };
@@ -78,6 +78,10 @@ async function run() {
   assert.equal(loginByEmail.user.id, a.user.id);
   const loginByName = await request('POST', '/api/login', { username: 'Tester_One', password: pw });
   assert.equal(loginByName.user.id, a.user.id);
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'x1@example.test', username: 'a b', password: pw, confirmPassword: pw, ...consent }), /Username/);
+  await assert.rejects(() => request('POST', '/api/signup', { email: 'x2@example.test', username: 'TESTER_ONE', password: pw, confirmPassword: pw, ...consent }), /409/);
+  const named = await request('POST', '/api/signup', { email: 'named@example.test', username: 'My_Name_9', password: pw, confirmPassword: pw, ...consent });
+  assert.equal(named.user.username, 'My_Name_9');
   const b = await request('POST', '/api/signup', { email: 'Tester_Two@example.test', password: pw, confirmPassword: pw, ...consent, referralCode: (await request('GET', '/api/me', undefined, a.token)).referralCode });
   // Sign in with Google
   assert.equal((await request('GET', '/api/config')).googleClientId, GOOGLE_ID);
@@ -105,6 +109,22 @@ async function run() {
   await request('POST', `/api/payments/${topup.paymentId}/simulate`, {}, b.token);
   const purchase = await request('POST', '/api/buy', { productId: product.id }, b.token);
   assert.equal(purchase.key, 'KEY-TEST-123');
+  // 6-digit reference codes for deposits and purchases, searchable by admin
+  assert.match(topup.code, /^\d{6}$/);
+  assert.match(purchase.code, /^\d{6}$/);
+  assert.notEqual(topup.code, purchase.code);
+  const foundBuy = await request('GET', '/api/admin/search?q=' + encodeURIComponent('#' + purchase.code), undefined, admin);
+  assert.ok(foundBuy.orders.some((o) => o.code === purchase.code));
+  const foundPay = await request('GET', '/api/admin/search?q=' + encodeURIComponent('#' + topup.code), undefined, admin);
+  assert.ok(foundPay.payments.some((p) => p.code === topup.code));
+  assert.equal((await request('GET', '/api/admin/orders?q=' + purchase.code, undefined, admin)).length, 1);
+  assert.equal((await request('GET', '/api/admin/payments?q=%23' + topup.code, undefined, admin)).length, 1);
+  assert.ok((await request('GET', '/api/orders', undefined, b.token)).some((o) => o.code === purchase.code));
+  assert.ok((await request('GET', '/api/wallet', undefined, b.token)).transactions.some((t) => t.note.includes('#' + purchase.code)));
+  // many failed buy attempts must never show "Too many attempts"
+  for (let i = 0; i < 60; i++) {
+    await assert.rejects(() => request('POST', '/api/buy', { productId: product.id }, b.token), (e) => !/429/.test(e.message));
+  }
   const idemProduct = await request('POST', '/api/admin/products', { name: 'Idempotency Test', category: 'Android', description: 'Replay test', websiteUrl: 'https://example.com', price: 1 }, admin);
   await request('POST', `/api/admin/products/${idemProduct.id}/keys`, { keys: ['IDEM-KEY-001'] }, admin);
   const idemBody = { productId: idemProduct.id, idem: 'buy-idempotency-001' };
@@ -210,6 +230,18 @@ async function run() {
   await request('POST', '/api/admin/logout-all', {}, admin);
   const revoked = await fetch(base + '/api/admin/stats', { headers: { Authorization: `Bearer ${admin}` } });
   assert.equal(revoked.status, 401);
+  // Launch cleanup keeps catalog but removes customers and activity
+  const adminNow = (await request('POST', '/api/admin/login', { password: 'test-admin-password' })).token;
+  await assert.rejects(() => request('POST', '/api/admin/clear-test-data', { confirm: 'yes' }, adminNow), /400/);
+  const productsBefore = (await request('GET', '/api/admin/products', undefined, adminNow)).length;
+  const cleared = await request('POST', '/api/admin/clear-test-data', { confirm: 'DELETE TEST DATA', restoreKeys: true }, adminNow);
+  assert.ok(cleared.cleared.users >= 3 && cleared.keysRestored >= 1);
+  assert.equal((await request('GET', '/api/admin/users', undefined, adminNow)).length, 0);
+  assert.equal((await request('GET', '/api/admin/orders', undefined, adminNow)).length, 0);
+  assert.equal((await request('GET', '/api/admin/products', undefined, adminNow)).length, productsBefore);
+  await assert.rejects(() => request('GET', '/api/me', undefined, b.token), /401/);
+  const fresh = await request('POST', '/api/signup', { email: 'fresh@example.test', username: 'FreshUser', password: pw, confirmPassword: pw, ...consent });
+  assert.equal(fresh.user.username, 'FreshUser');
   console.log('PASS: core store + operations, supplier batches, affiliates, SEO, gifts, loyalty, bundles, advanced analytics, community, maintenance mode, wishlist, Telegram setup check.');
 }
 run().catch((e) => { console.error('FAIL:', e.stack || e); process.exitCode = 1; }).finally(() => {

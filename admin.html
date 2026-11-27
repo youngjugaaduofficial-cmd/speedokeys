@@ -200,9 +200,10 @@ const IC = {
 const icon = (n) => { const s = document.createElement('span'); s.style.display = 'flex'; s.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + IC[n] + '</svg>'; return s; };
 const NAV = [
   ['Overview', [['dash', 'Dashboard', 'chart']]],
-  ['Catalog', [['products', 'Products', 'game'], ['banners', 'Banners', 'image']]],
+  ['Catalog', [['products', 'Products', 'game'], ['banners', 'Banners', 'image'], ['seo', 'SEO', 'list']]],
   ['Sales', [['orders', 'Orders', 'receipt'], ['payments', 'Payments', 'card'], ['coupons', 'Coupons', 'tag']]],
-  ['People', [['users', 'Users', 'users'], ['tickets', 'Support chat', 'chat']]],
+  ['People', [['users', 'Users', 'users'], ['tickets', 'Support chat', 'chat'], ['reviews', 'Reviews', 'star'], ['growth', 'Rewards & referrals', 'chart'], ['affiliates', 'Affiliates', 'link']]],
+  ['Messages', [['notices', 'Notices', 'bell']]],
   ['System', [['look', 'Appearance & tools', 'gear'], ['security', 'Security', 'shield'], ['activity', 'Activity log', 'list'], ['settings', 'Settings', 'gear']]],
 ];
 const TITLES = Object.fromEntries(NAV.flatMap(([, l]) => l.map(([k, t]) => [k, t])));
@@ -246,13 +247,13 @@ function draw() {
   lv.style.display = 'none'; shell.style.display = 'block';
   document.getElementById('ptitle').textContent = TITLES[tab] || '';
   paintNav(); refreshBadges(); shopChip();
-  const VIEWS = { dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView, activity: activityView, tickets: ticketsView, security: securityView };
+  const VIEWS = { dash: dashView, products: productsView, orders: ordersView, users: usersView, coupons: couponsView, payments: paymentsView, settings: settingsView, banners: bannersView, look: lookView, reviews: reviewsView, notices: noticesView, growth: growthView, affiliates: () => moduleView('affiliates'), seo: () => moduleView('seo'), activity: activityView, tickets: ticketsView, security: securityView };
   (VIEWS[tab] || dashView)();
 }
 setInterval(refreshBadges, 30000);
 
 function openSearch() {
-  const q = h('input', { placeholder: 'Search users, orders, products, tickets…', autofocus: 'autofocus' });
+  const q = h('input', { placeholder: 'Search users, #order or #deposit code, products…', autofocus: 'autofocus' });
   const box = h('div', { class: 'res' }, h('div', { class: 'muted small' }, 'Type at least 2 letters. Shortcut: / or Ctrl+K'));
   const ov = modal(h('h3', {}, 'Search'), q, box);
   let t;
@@ -263,7 +264,7 @@ function openSearch() {
       if (q.value.trim().length < 2) return;
       try {
         const r = await api('GET', '/api/admin/search?q=' + encodeURIComponent(q.value.trim()));
-        const items = [...r.users.map((u) => row('👤 ' + u.username, rupees(u.balance) + (u.banned ? ' • banned' : ''), 'users')), ...r.orders.map((o) => row('🧾 ' + o.product, o.username + ' • ' + rupees(o.paid), 'orders')), ...r.products.map((p) => row('🎮 ' + p.name, rupees(p.price), 'products')), ...r.tickets.map((x) => row('💬 ' + x.subject, x.username + ' • ' + x.status, 'tickets'))];
+        const items = [...r.users.map((u) => row('👤 ' + u.username, rupees(u.balance) + (u.banned ? ' • banned' : ''), 'users')), ...(r.payments || []).map((p) => row('💰 Deposit ' + (p.code ? '#' + p.code : ''), p.username + ' • ' + rupees(p.amount) + ' • ' + p.status, 'payments')), ...r.orders.map((o) => row('🧾 ' + o.product + (o.code ? ' #' + o.code : ''), o.username + ' • ' + rupees(o.paid), 'orders')), ...r.products.map((p) => row('🎮 ' + p.name, rupees(p.price), 'products')), ...r.tickets.map((x) => row('💬 ' + x.subject, x.username + ' • ' + x.status, 'tickets'))];
         box.replaceChildren(...(items.length ? items : [h('div', { class: 'muted' }, 'Nothing found.')]));
       } catch (e) { box.replaceChildren(errBox(e)); }
     }, 250);
@@ -374,6 +375,92 @@ async function ticketsView() {
 }
 
 // ---------- reviews ----------
+// ---------- reviews / notices / rewards / affiliates / SEO ----------
+async function reviewsView() {
+  view.replaceChildren(busy());
+  try {
+    const list = await api('GET', '/api/admin/reviews');
+    view.replaceChildren(h('div', { class: 'stack' }, h('h2', {}, list.length + ' reviews'),
+      ...(list.length ? list.map((r) => h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('b', {}, r.productName), h('span', { class: 'stars' }, '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating))), r.comment ? h('div', {}, r.comment) : null, h('div', { class: 'row' }, h('small', { class: 'muted' }, r.username + ' • ' + when(r.createdAt)), h('button', { class: 'btn danger', onclick: async () => { if (!confirm('Delete this review?')) return; try { await api('DELETE', '/api/admin/reviews/' + r.id); reviewsView(); } catch (e) { toast(e.message); } } }, 'Delete')))) : [h('p', { class: 'muted' }, 'No reviews yet. Customers can rate after buying.')])));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+async function noticesView() {
+  view.replaceChildren(busy());
+  try {
+    const list = await (await fetch('/api/notices')).json();
+    const title = h('input', { placeholder: 'Title e.g. Diwali sale live', maxlength: '80' });
+    const text = h('textarea', { class: 'ta', placeholder: 'Message customers will see in their bell inbox', maxlength: '400' });
+    const push = h('input', { type: 'checkbox', style: 'width:auto' });
+    const btn = h('button', { class: 'btn primary full' }, 'Publish notice');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await api('POST', '/api/admin/notices', { title: title.value, body: text.value });
+        if (push.checked) { try { const r = await api('POST', '/api/admin/notify', { title: title.value, message: text.value }); toast('Published + push sent to ' + r.recipients); } catch (e) { toast('Published. Push failed: ' + e.message); } } else toast('Published');
+        noticesView();
+      } catch (e) { toast(e.message); btn.disabled = false; }
+    });
+    view.replaceChildren(h('div', { class: 'stack' },
+      h('div', { class: 'card stack' }, h('h3', {}, 'New notice'), title, text, h('label', { class: 'gap', style: 'align-items:center' }, push, ' Also send push notification (needs OneSignal env vars)'), btn),
+      h('h2', {}, 'Published'),
+      ...(list.length ? list.map((n) => h('div', { class: 'card stack' }, h('b', {}, n.title), h('div', {}, n.body), h('div', { class: 'row' }, h('small', { class: 'muted' }, when(n.at)), h('button', { class: 'btn danger', onclick: async () => { try { await api('DELETE', '/api/admin/notices/' + n.id); noticesView(); } catch (e) { toast(e.message); } } }, 'Delete')))) : [h('p', { class: 'muted' }, 'No notices yet.')])));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+async function growthView() {
+  view.replaceChildren(busy());
+  try {
+    const s = await api('GET', '/api/admin/settings');
+    const inp = (v, ph) => h('input', { value: String(v), inputmode: 'decimal', placeholder: ph || '' });
+    const welcome = inp(s.welcomeBonus), ref = inp(s.referralReward), daily = inp(s.dailyTopupLimit), fresh = inp(s.newUserTopupLimit), minT = inp(s.minTopup), maxT = inp(s.maxTopup);
+    let tiers = (s.bonusTiers || []).map((t) => ({ ...t }));
+    const tb = h('div', { class: 'stack' });
+    const paint = () => tb.replaceChildren(...tiers.map((t, i) => h('div', { class: 'gap', style: 'align-items:center' }, h('span', {}, 'Add ₹'), h('input', { value: String(t.min), inputmode: 'decimal', style: 'width:90px', oninput: (e) => { t.min = e.target.value; } }), h('span', {}, 'get ₹'), h('input', { value: String(t.bonus), inputmode: 'decimal', style: 'width:90px', oninput: (e) => { t.bonus = e.target.value; } }), h('span', {}, 'extra'), h('button', { class: 'btn danger', onclick: () => { tiers.splice(i, 1); paint(); } }, '✕'))), tiers.length < 6 ? h('button', { class: 'btn', onclick: () => { tiers.push({ min: 500, bonus: 20 }); paint(); } }, '+ Add tier') : null);
+    paint();
+    const refBox = h('div', { class: 'stack' }, busy());
+    const save = h('button', { class: 'btn primary full' }, 'Save');
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      try { await api('PUT', '/api/admin/settings', { welcomeBonus: Number(welcome.value), referralReward: Number(ref.value), dailyTopupLimit: Number(daily.value), newUserTopupLimit: Number(fresh.value), minTopup: Number(minT.value), maxTopup: Number(maxT.value), bonusTiers: tiers.map((t) => ({ min: Number(t.min), bonus: Number(t.bonus) })) }); toast('Saved'); } catch (e) { toast(e.message); }
+      save.disabled = false;
+    });
+    const f = (l, el, hint) => h('div', {}, h('label', {}, l), el, hint ? h('div', { class: 'muted small' }, hint) : null);
+    view.replaceChildren(h('div', { class: 'stack' },
+      h('div', { class: 'card stack' }, h('h3', {}, 'Rewards'), f('Welcome bonus (₹, new accounts)', welcome, '0 = off. Given once per network to stop fake accounts.'), f('Referral reward (₹)', ref), h('h3', {}, 'Top-up bonus tiers'), h('div', { class: 'muted small' }, 'Customers who add at least the amount get the extra coins automatically.'), tb),
+      h('div', { class: 'card stack' }, h('h3', {}, 'Fraud limits'), f('Daily top-up limit per user (₹)', daily), f('First 24 hours top-up limit (₹)', fresh, 'Lower limit for brand new accounts.'), f('Minimum top-up (₹)', minT), f('Maximum single top-up (₹)', maxT)),
+      save,
+      h('div', { class: 'card stack' }, h('h3', {}, 'Referrals'), refBox)));
+    api('GET', '/api/admin/referrals').then((r) => {
+      refBox.replaceChildren(h('div', { class: 'small muted' }, r.total + ' invited • ' + r.rewarded + ' rewarded • ' + r.pending + ' pending • ' + rupees(r.paid) + ' paid out'),
+        ...(r.rows.length ? r.rows.slice(0, 50).map((x) => h('div', { class: 'row small' }, h('span', {}, x.referrer + ' → ' + x.referred + (x.sameIp ? ' ⚠ same network' : '')), h('span', {}, statusTag(x.status === 'rewarded' ? 'paid' : x.status)))) : [h('div', { class: 'muted small' }, 'No referrals yet.')]));
+    }).catch((e) => refBox.replaceChildren(errBox(e)));
+  } catch (e) { view.replaceChildren(errBox(e)); }
+}
+
+async function moduleView(which) {
+  view.replaceChildren(busy());
+  const field = (p,type='text') => h('input',{placeholder:p,type});
+  const area = p => h('textarea',{class:'ta',placeholder:p});
+  const btn = (t,fn) => h('button',{class:'btn primary',onclick:fn},t);
+  const card = (t,...kids) => h('div',{class:'card stack'},h('h3',{},t),...kids);
+  const row = (...kids) => h('div',{class:'row',style:'gap:8px;flex-wrap:wrap'},...kids);
+  const empty = () => h('p',{class:'muted'},'No records yet.');
+  try {
+    if (which === 'affiliates') {
+      const [aff,pays]=await Promise.all([api('GET','/api/admin/affiliates'),api('GET','/api/admin/affiliate-payouts')]);
+      const name=field('Affiliate name'),code=field('Code optional'),rate=field('Commission %','number'), sel=h('select',{},...aff.map(x=>h('option',{value:x.id},x.name+' • '+x.code))),amount=field('Payout ₹','number'),reference=field('Transaction reference');
+      const arows=aff.length?aff.map(x=>row(h('b',{},x.name),x.code,x.rate+'%',x.clicks+' clicks',x.conversions+' conversions','Unpaid '+rupees(x.unpaidPaise/100))):[empty()];
+      const prows=pays.length?pays.map(x=>row(rupees(x.amountPaise/100),x.status,x.reference,when(x.createdAt))):[empty()];
+      view.replaceChildren(h('div',{class:'stack'},card('Create affiliate',name,code,rate,btn('Create affiliate',async()=>{try{await api('POST','/api/admin/affiliates',{name:name.value,code:code.value,rate:rate.value});moduleView(which)}catch(e){toast(e.message)}})),card('Performance',...arows),card('Record payout',sel,amount,reference,btn('Save payout record',async()=>{try{await api('POST','/api/admin/affiliate-payouts',{affiliateId:sel.value,amount:amount.value,reference:reference.value});moduleView(which)}catch(e){toast(e.message)}})),card('Payout history',...prows)));
+    } else if (which === 'seo') {
+      const pages=await api('GET','/api/admin/seo'),slug=field('Page slug'),title=field('SEO title'),desc=area('Meta description'),canonical=field('Canonical URL'),noindex=h('input',{type:'checkbox'});
+      const rows=Object.entries(pages).map(([k,v])=>row(h('b',{},k),v.title,v.noindex?'noindex':'index'));
+      view.replaceChildren(h('div',{class:'stack'},card('SEO metadata',slug,title,desc,canonical,row(noindex,'Noindex'),btn('Save page metadata',async()=>{try{await api('PUT','/api/admin/seo/'+encodeURIComponent(slug.value),{title:title.value,description:desc.value,canonical:canonical.value,noindex:noindex.checked});moduleView(which)}catch(e){toast(e.message)}})),card('Saved pages',...(rows.length?rows:[empty()])),card('Crawler files',h('a',{href:'/robots.txt',target:'_blank'},'robots.txt'),h('a',{href:'/sitemap.xml',target:'_blank'},'sitemap.xml'))));
+    }
+  } catch(e) { view.replaceChildren(errBox(e)); }
+}
+
 async function securityView() {
   view.replaceChildren(busy());
   try {
@@ -567,10 +654,11 @@ async function keysModal(p) {
 }
 
 // ---------- orders ----------
+let payQ = '';
 let orderQ = '', orderStatus = '';
 async function ordersView() {
   const list = h('div', { class: 'stack' }, busy());
-  const q = h('input', { placeholder: '🔍 Search user or product', value: orderQ });
+  const q = h('input', { placeholder: 'Search user, product or #123456', value: orderQ });
   const st = h('select', {}, ['', 'completed', 'refunded'].map((s) => h('option', { value: s }, s || 'All statuses')));
   st.value = orderStatus;
   const qs = () => '?q=' + encodeURIComponent(orderQ) + '&status=' + encodeURIComponent(orderStatus);
@@ -589,7 +677,7 @@ async function ordersView() {
     try {
       const rows = await api('GET', '/api/admin/orders' + qs());
       list.replaceChildren(...(rows.length ? rows.map((o) => h('div', { class: 'card stack' },
-        h('div', { class: 'row' }, h('b', {}, o.product), statusTag(o.status)),
+        h('div', { class: 'row' }, h('b', {}, o.product + (o.code ? '  #' + o.code : '')), statusTag(o.status)),
         h('div', { class: 'row small muted' }, h('span', {}, '👤 ' + o.username + ' • ' + rupees(o.paid) + (o.coupon ? ' • ' + o.coupon : '')), h('span', {}, when(o.createdAt))),
         o.key ? h('div', { class: 'key' }, o.key) : null,
         o.status === 'completed' ? h('div', {}, h('button', { class: 'btn danger', onclick: async () => { if (!confirm('Refund ' + rupees(o.paid) + ' to ' + o.username + "'s wallet?")) return; try { await api('POST', '/api/admin/orders/' + o.id + '/refund'); toast('Refunded'); load(); } catch (e) { toast(e.message); } } }, 'Refund to wallet')) : null)) : [h('p', { class: 'muted' }, 'No orders found.')]));
@@ -673,20 +761,26 @@ async function couponsView() {
 
 // ---------- payments ----------
 async function paymentsView() {
-  view.replaceChildren(busy());
-  try {
-    const ps = await api('GET', '/api/admin/payments');
-    view.replaceChildren(h('div', { class: 'stack' },
-      h('div', { class: 'muted small' }, 'Wallet top-ups. If a customer paid but the money did not arrive, check your gateway and tap Approve once to credit the wallet.'),
-      ...(ps.length ? ps.map((p) => h('div', { class: 'card stack' },
-        h('div', { class: 'row' }, h('b', {}, '👤 ' + p.username + ' • ' + rupees(p.amount)), statusTag(p.status)),
+  const q = h('input', { placeholder: 'Search user or #123456', value: payQ });
+  const list = h('div', { class: 'stack' }, busy());
+  let timer;
+  q.addEventListener('input', () => { payQ = q.value; clearTimeout(timer); timer = setTimeout(load, 250); });
+  view.replaceChildren(h('div', { class: 'stack' }, h('div', { class: 'muted small' }, 'Wallet top-ups. If a customer paid but the money did not arrive, check your gateway and tap Approve once to credit the wallet.'), q, list));
+  async function load() {
+    try {
+      const ps = await api('GET', '/api/admin/payments?q=' + encodeURIComponent(payQ));
+      list.replaceChildren(...(ps.length ? ps.map((p) => h('div', { class: 'card stack' },
+        h('div', { class: 'row' }, h('b', {}, p.username + ' • ' + rupees(p.amount) + (p.code ? '  #' + p.code : '')), statusTag(p.status)),
         h('div', { class: 'row small muted' }, h('span', {}, p.gateway), h('span', {}, when(p.createdAt))),
-        p.status !== 'paid' ? h('div', {}, h('button', { class: 'btn primary', onclick: async () => { if (!confirm('Credit ' + rupees(p.amount) + ' to ' + p.username + '? Only do this if you saw the money arrive.')) return; try { await api('POST', '/api/admin/payments/' + p.id + '/approve'); toast('Credited'); paymentsView(); } catch (e) { toast(e.message); } } }, 'Approve & credit')) : null)) : [h('p', { class: 'muted' }, 'No payments yet.')])));
-  } catch (e) { view.replaceChildren(errBox(e)); }
+        p.status !== 'paid' ? h('div', {}, h('button', { class: 'btn primary', onclick: async () => { if (!confirm('Credit ' + rupees(p.amount) + ' to ' + p.username + '? Only do this if you saw the money arrive.')) return; try { await api('POST', '/api/admin/payments/' + p.id + '/approve'); toast('Credited'); load(); } catch (e) { toast(e.message); } } }, 'Approve')) : null)) : [h('p', { class: 'muted' }, 'No payments found.')]));
+    } catch (e) { list.replaceChildren(errBox(e)); }
+  }
+  load();
 }
 
 // ---------- settings ----------
 async function settingsView() {
+  const restoreKeys = h('input', { type: 'checkbox', style: 'width:auto' });
   view.replaceChildren(busy());
   try {
     const s = await api('GET', '/api/admin/settings');
@@ -813,7 +907,15 @@ async function lookView() {
           h('button', { class: 'btn', onclick: () => downloadAuth('/api/admin/users.csv', 'users.csv') }, 'Export users CSV'),
           h('button', { class: 'btn', onclick: () => downloadAuth('/api/admin/orders.csv', 'orders.csv') }, 'Export orders CSV'),
           h('button', { class: 'btn', onclick: () => downloadAuth('/api/admin/backup', 'keystore-backup.json') }, 'Download full backup')),
-        h('p', { class: 'muted small' }, 'The backup contains all keys. Keep it private.'))));
+        h('p', { class: 'muted small' }, 'The backup contains all keys. Keep it private.')),
+      h('div', { class: 'card stack' }, h('h3', {}, 'Launch cleanup'),
+        h('p', { class: 'muted small' }, 'Deletes all customers, orders, deposits, wallet history, tickets and reviews (your test data). Products, keys, coupons, banners and settings stay. Download a backup first.'),
+        h('label', { class: 'gap', style: 'align-items:center' }, restoreKeys, ' Make keys that were sold during testing available again'),
+        h('button', { class: 'btn danger', onclick: async () => {
+          const t = prompt('This cannot be undone. Type DELETE TEST DATA to continue.');
+          if (t !== 'DELETE TEST DATA') return;
+          try { const r = await api('POST', '/api/admin/clear-test-data', { confirm: t, restoreKeys: restoreKeys.checked }); toast('Cleared ' + r.cleared.users + ' users, ' + r.cleared.orders + ' orders, ' + r.cleared.payments + ' payments'); } catch (e) { toast(e.message); }
+        } }, 'Delete test data'))));
   } catch (e) { view.replaceChildren(errBox(e)); }
 }
 

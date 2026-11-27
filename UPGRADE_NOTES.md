@@ -1,3 +1,15 @@
+# Speedo Keys v2.8.0 — Codes, username, no buy limit, admin parity
+
+- **Register** now asks for a username (3-20 letters, numbers, `_`, unique). Google sign-ups get a name made from the email.
+- **6-digit reference codes** (#123456): every deposit gets one, every purchase gets one (items bought together in one checkout share the code). Customers see them in My Codes, receipts, wallet history and the payment screens. Old records get a code automatically on first start.
+- **Admin search**: type `#123456` (or just the digits) in the top search, in Orders, or in Payments. Payments now has its own search box.
+- **No more "Too many attempts" while buying.** The 40-per-hour purchase limit is removed; a very high per-minute guard (120/min) remains against bots. Top-up creation allows 30 per hour.
+- **Admin matches the user panel**: Notices (bell), Reviews, Rewards & referrals (welcome bonus, referral reward, top-up bonus tiers, limits, referral list), Affiliates, SEO were brought back because the shop uses them. Gifts, Loyalty, Bundles, Community, Suppliers, Operations and Advanced analytics stay removed (the shop has no screens for them).
+
+- **Launch cleanup**: Admin > Settings > "Delete test data" (type DELETE TEST DATA) removes all customers, orders, deposits, wallet history, tickets and reviews; products, keys, coupons, banners and settings stay. Optional tick makes keys sold during testing available again. Download a backup first.
+
+---
+
 # Speedo Keys v2.7.0 — Simple admin, new sign-up
 
 ## Admin panel
